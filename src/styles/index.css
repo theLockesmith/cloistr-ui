@@ -1,0 +1,7 @@
+/**
+ * Cloistr UI Styles
+ * Import this file to get all Cloistr component styles
+ */
+
+@import './variables.css';
+@import './components.css';
