@@ -20,7 +20,8 @@
       "types": "./dist/components/index.d.ts"
     },
     "./styles": {
-      "import": "./dist/styles/index.css"
+      "import": "./dist/styles/index.css",
+      "types": "./dist/styles/index.d.ts"
     }
   },
   "files": [
