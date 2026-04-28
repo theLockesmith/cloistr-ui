@@ -27,10 +27,12 @@ export interface ServiceMenuProps {
  */
 export const defaultServices: Service[] = [
   { id: 'home', name: 'Home', url: 'https://cloistr.xyz', icon: '🏠' },
-  { id: 'relay', name: 'Relay', url: 'https://relay.cloistr.xyz', icon: '📡' },
-  { id: 'files', name: 'Files', url: 'https://files.cloistr.xyz', icon: '📁' },
-  { id: 'docs', name: 'Documents', url: 'https://docs.cloistr.xyz', icon: '📄' },
-  { id: 'photos', name: 'Photos', url: 'https://photos.cloistr.xyz', icon: '📷' },
+  { id: 'space', name: 'Space', url: 'https://space.cloistr.xyz', icon: '🚀' },
+  { id: 'docs', name: 'Docs', url: 'https://docs.cloistr.xyz', icon: '📄' },
+  { id: 'sheets', name: 'Sheets', url: 'https://sheets.cloistr.xyz', icon: '📊' },
+  { id: 'whiteboard', name: 'Whiteboard', url: 'https://whiteboard.cloistr.xyz', icon: '🎨' },
+  { id: 'slides', name: 'Slides', url: 'https://slides.cloistr.xyz', icon: '📽️' },
+  { id: 'files', name: 'Files', url: 'https://stash.cloistr.xyz', icon: '📁' },
   { id: 'discover', name: 'Discover', url: 'https://discover.cloistr.xyz', icon: '🔍' },
 ];
 
