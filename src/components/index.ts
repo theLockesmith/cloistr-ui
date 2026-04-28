@@ -12,3 +12,6 @@ export type { UserMenuProps } from './UserMenu';
 
 export { ServiceMenu, defaultServices } from './ServiceMenu';
 export type { ServiceMenuProps, Service } from './ServiceMenu';
+
+export { SharedAuthProvider, useSharedSession } from './SharedAuthProvider';
+export type { SharedAuthProviderProps } from './SharedAuthProvider';
