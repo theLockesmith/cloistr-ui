@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useAuth } from '../auth';
+import { useNostrAuth } from '../auth';
 import { ServiceMenu, Service, defaultServices } from './ServiceMenu';
 import { UserMenu } from './UserMenu';
 import { LoginModal } from './LoginModal';
@@ -36,7 +36,7 @@ export function Header({
   signerUrl,
   children,
 }: HeaderProps) {
-  const { state } = useAuth();
+  const { authState } = useNostrAuth();
   const [showLoginModal, setShowLoginModal] = useState(false);
 
   const defaultLogo = (
@@ -59,7 +59,7 @@ export function Header({
 
         <div className="cloistr-header-right">
           {children}
-          {state.isConnected ? (
+          {authState.isConnected ? (
             <UserMenu profileUrl={profileUrl} settingsUrl={settingsUrl} />
           ) : (
             <button

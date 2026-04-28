@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { useAuth } from '../auth';
+import { useNostrAuth } from '../auth';
 
 export interface UserMenuProps {
   /** URL to user's profile page */
@@ -12,7 +12,7 @@ export interface UserMenuProps {
  * User dropdown menu showing pubkey and actions
  */
 export function UserMenu({ profileUrl = '/profile', settingsUrl = '/settings' }: UserMenuProps) {
-  const { state, disconnect } = useAuth();
+  const { authState, disconnect } = useNostrAuth();
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -28,11 +28,11 @@ export function UserMenu({ profileUrl = '/profile', settingsUrl = '/settings' }:
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  if (!state.isConnected || !state.pubkey) {
+  if (!authState.isConnected || !authState.pubkey) {
     return null;
   }
 
-  const shortPubkey = `${state.pubkey.slice(0, 8)}...${state.pubkey.slice(-4)}`;
+  const shortPubkey = `${authState.pubkey.slice(0, 8)}...${authState.pubkey.slice(-4)}`;
 
   return (
     <div className="cloistr-user-menu" ref={menuRef}>
@@ -43,7 +43,7 @@ export function UserMenu({ profileUrl = '/profile', settingsUrl = '/settings' }:
         aria-haspopup="menu"
       >
         <span className="cloistr-user-avatar">
-          {state.pubkey.slice(0, 2).toUpperCase()}
+          {authState.pubkey.slice(0, 2).toUpperCase()}
         </span>
         <span className="cloistr-user-pubkey">{shortPubkey}</span>
       </button>
@@ -51,11 +51,11 @@ export function UserMenu({ profileUrl = '/profile', settingsUrl = '/settings' }:
       {isOpen && (
         <div className="cloistr-user-menu-dropdown" role="menu">
           <div className="cloistr-user-menu-header">
-            <span className="cloistr-user-menu-pubkey-full" title={state.pubkey}>
-              {state.pubkey.slice(0, 16)}...
+            <span className="cloistr-user-menu-pubkey-full" title={authState.pubkey}>
+              {authState.pubkey.slice(0, 16)}...
             </span>
             <span className="cloistr-user-menu-method">
-              {state.method === 'nip07' ? 'Extension' : 'Bunker'}
+              {authState.method === 'nip07' ? 'Extension' : 'Bunker'}
             </span>
           </div>
 

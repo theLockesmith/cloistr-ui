@@ -1,33 +1,35 @@
-// Types
-export type {
-  SignerInterface,
-  AuthState,
-  AuthContextValue,
-  Nip07Provider,
-} from './types';
-
-// NIP-07 (Browser Extensions)
+/**
+ * Re-export auth from @cloistr/collab-common
+ * This provides a unified auth system across all Cloistr applications.
+ */
 export {
-  Nip07Signer,
-  isNip07Available,
-  getNip07Provider,
-  createNip07Signer,
-} from './nip07';
-
-// NIP-46 (Remote Signers)
-export {
-  BunkerSigner,
-  parseBunkerUrl,
-  isValidBunkerUrl,
-  createBunkerSigner,
-} from './nip46';
-
-// React Context and Hooks
-export {
+  // React context and hooks
   AuthProvider,
-  useAuth,
-  useAuthState,
-  useSigner,
-  usePubkey,
-  useIsConnected,
-} from './context';
+  useNostrAuth,
+  useAuthHelpers,
+  // NIP-07
+  connectNip07,
+  detectExtension,
+  isNip07Supported,
+  // NIP-46
+  connectNip46,
+  isNip46Supported,
+  isValidBunkerUrl,
+  restoreNip46Session,
+  hasNip46Session,
+  clearNip46Session,
+  // Errors
+  AuthError,
+  Nip07Error,
+  Nip46Error,
+} from '@cloistr/collab-common/auth';
+
+export type {
+  AuthState,
+  SignerInterface,
+  EnhancedSignerInterface,
+  AuthMethod,
+  AuthContextValue,
+  Nip46Config,
+  AuthProviderProps,
+} from '@cloistr/collab-common/auth';

@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-import { useAuth } from '../auth';
-import { isNip07Available, isValidBunkerUrl } from '../auth';
+import { useNostrAuth, useAuthHelpers, isValidBunkerUrl } from '../auth';
 
 export interface LoginModalProps {
   /** Whether the modal is open */
@@ -15,7 +14,8 @@ export interface LoginModalProps {
  * Login modal with NIP-07 and NIP-46 options
  */
 export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloistr.xyz' }: LoginModalProps) {
-  const { connectNip07, connectNip46, state } = useAuth();
+  const { connectNip07, connectNip46, authState } = useNostrAuth();
+  const { isNip07Available } = useAuthHelpers();
   const [bunkerUrl, setBunkerUrl] = useState('');
   const [showBunkerInput, setShowBunkerInput] = useState(false);
 
@@ -23,7 +23,7 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
 
   const handleNip07 = async () => {
     await connectNip07();
-    if (!state.error) {
+    if (!authState.error) {
       onClose();
     }
   };
@@ -31,8 +31,8 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
   const handleBunkerSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isValidBunkerUrl(bunkerUrl)) {
-      await connectNip46(bunkerUrl);
-      if (!state.error) {
+      await connectNip46({ bunkerUrl });
+      if (!authState.error) {
         onClose();
       }
     }
@@ -55,27 +55,27 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
         </div>
 
         <div className="cloistr-modal-content">
-          {state.error && (
-            <div className="cloistr-error">{state.error}</div>
+          {authState.error && (
+            <div className="cloistr-error">{authState.error}</div>
           )}
 
           {!showBunkerInput ? (
             <>
               <div className="cloistr-login-options">
-                {isNip07Available() && (
+                {isNip07Available && (
                   <button
                     className="cloistr-btn cloistr-btn-primary"
                     onClick={handleNip07}
-                    disabled={state.isLoading}
+                    disabled={authState.isConnecting}
                   >
-                    {state.isLoading ? 'Connecting...' : 'Use Browser Extension'}
+                    {authState.isConnecting ? 'Connecting...' : 'Use Browser Extension'}
                   </button>
                 )}
 
                 <button
                   className="cloistr-btn cloistr-btn-secondary"
                   onClick={() => setShowBunkerInput(true)}
-                  disabled={state.isLoading}
+                  disabled={authState.isConnecting}
                 >
                   Use Bunker URL
                 </button>
@@ -119,9 +119,9 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
                 <button
                   type="submit"
                   className="cloistr-btn cloistr-btn-primary"
-                  disabled={!isValidBunkerUrl(bunkerUrl) || state.isLoading}
+                  disabled={!isValidBunkerUrl(bunkerUrl) || authState.isConnecting}
                 >
-                  {state.isLoading ? 'Connecting...' : 'Connect'}
+                  {authState.isConnecting ? 'Connecting...' : 'Connect'}
                 </button>
               </div>
             </form>
