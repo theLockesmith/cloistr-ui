@@ -28,7 +28,7 @@ publish:
   script:
     - echo "@cloistr:registry=https://git.aegis-hq.xyz/api/v4/projects/${CI_PROJECT_ID}/packages/npm/" > .npmrc
     - echo "//git.aegis-hq.xyz/api/v4/projects/${CI_PROJECT_ID}/packages/npm/:_authToken=${CI_JOB_TOKEN}" >> .npmrc
-    - npm publish
+    - npm publish --ignore-scripts
   only:
     - main
     - master
