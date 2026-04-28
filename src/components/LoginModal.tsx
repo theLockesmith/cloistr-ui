@@ -86,7 +86,7 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
                   rel="noopener noreferrer"
                   className="cloistr-btn cloistr-btn-outline"
                 >
-                  Create Account at Cloistr
+                  Login With Cloistr
                 </a>
               </div>
 
