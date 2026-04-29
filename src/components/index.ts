@@ -7,6 +7,9 @@ export type { FooterProps, FooterLink } from './Footer';
 export { LoginModal } from './LoginModal';
 export type { LoginModalProps } from './LoginModal';
 
+export { LoginPrompt } from './LoginPrompt';
+export type { LoginPromptProps } from './LoginPrompt';
+
 export { UserMenu } from './UserMenu';
 export type { UserMenuProps } from './UserMenu';
 
