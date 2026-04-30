@@ -19,6 +19,15 @@ export type { ServiceMenuProps, Service } from './ServiceMenu';
 export { SharedAuthProvider, useSharedSession } from './SharedAuthProvider';
 export type { SharedAuthProviderProps } from './SharedAuthProvider';
 
+export { BackendAuthProvider, useBackendAuth } from './BackendAuthProvider';
+export type {
+  BackendAuthProviderProps,
+  BackendAuthConfig,
+  BackendAuthState,
+  BackendAuthContextValue,
+  BackendUser,
+} from './BackendAuthProvider';
+
 export { ToastProvider, useToast } from './Toast';
 export type { ToastProviderProps, ToastOptions, ToastMessage, ToastVariant } from './Toast';
 
