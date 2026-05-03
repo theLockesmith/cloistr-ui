@@ -55,7 +55,7 @@ propagate:discovery-ui:
   stage: propagate
   trigger:
     project: coldforge/cloistr-discovery-ui
-    branch: main
+    branch: master
     strategy: depend
   variables:
     UPSTREAM_TRIGGER: "true"
