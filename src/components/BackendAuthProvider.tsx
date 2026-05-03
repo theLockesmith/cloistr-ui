@@ -38,6 +38,7 @@ import {
   clearSharedSession,
   getSharedSession,
   isCloistrDomain,
+  renewSession,
 } from '../lib/session';
 
 // ============================================
@@ -227,6 +228,9 @@ function BackendAuthInner({ children, config }: InnerProviderProps) {
       setToken(data.access_token);
       setTokenExpiry(data.expires_at);
       scheduleTokenRefresh(data.expires_at);
+
+      // Auto-renew SSO cookies on token refresh
+      renewSession();
     } catch {
       clearAuth();
     }
