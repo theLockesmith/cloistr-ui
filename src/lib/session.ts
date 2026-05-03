@@ -14,15 +14,25 @@ export interface SharedSession {
 }
 
 /**
- * Cookie configuration
+ * Session TTL options in seconds
  */
-const COOKIE_CONFIG = {
-  domain: '.cloistr.xyz',
-  path: '/',
-  maxAge: 60 * 60 * 24 * 30, // 30 days
-  secure: true,
-  sameSite: 'lax' as const,
+export const SESSION_TTL_OPTIONS = {
+  '1d': 60 * 60 * 24,           // 1 day
+  '7d': 60 * 60 * 24 * 7,       // 7 days
+  '30d': 60 * 60 * 24 * 30,     // 30 days
+  'never': 60 * 60 * 24 * 400,  // 400 days (browser max)
+} as const;
+
+export type SessionTTL = keyof typeof SESSION_TTL_OPTIONS;
+
+export const SESSION_TTL_LABELS: Record<SessionTTL, string> = {
+  '1d': '1 day',
+  '7d': '7 days',
+  '30d': '30 days',
+  'never': 'Does not expire',
 };
+
+const DEFAULT_TTL: SessionTTL = '30d';
 
 /**
  * Cookie keys
@@ -31,7 +41,48 @@ const COOKIE_KEYS = {
   METHOD: 'cloistr_auth_method',
   PUBKEY: 'cloistr_auth_pubkey',
   BUNKER: 'cloistr_auth_bunker',
+  TTL: 'cloistr_session_ttl',
 } as const;
+
+/**
+ * Get current TTL preference or default
+ */
+export function getSessionTTL(): SessionTTL {
+  const stored = getCookie(COOKIE_KEYS.TTL);
+  if (stored && stored in SESSION_TTL_OPTIONS) {
+    return stored as SessionTTL;
+  }
+  return DEFAULT_TTL;
+}
+
+/**
+ * Set session TTL preference
+ */
+export function setSessionTTL(ttl: SessionTTL): void {
+  if (!isBrowser()) return;
+  const maxAge = SESSION_TTL_OPTIONS[ttl];
+  document.cookie = buildCookieWithMaxAge(COOKIE_KEYS.TTL, ttl, maxAge);
+
+  // Refresh other session cookies with new TTL
+  const session = getSharedSession();
+  if (session) {
+    saveSharedSession(session);
+  }
+}
+
+/**
+ * Get cookie configuration with current TTL
+ */
+function getCookieConfig() {
+  const ttl = getSessionTTL();
+  return {
+    domain: '.cloistr.xyz',
+    path: '/',
+    maxAge: SESSION_TTL_OPTIONS[ttl],
+    secure: true,
+    sameSite: 'lax' as const,
+  };
+}
 
 /**
  * Check if running in browser
@@ -50,26 +101,29 @@ export function isCloistrDomain(): boolean {
 }
 
 /**
- * Build cookie string with proper attributes
+ * Build cookie string with specific maxAge
  */
-function buildCookie(name: string, value: string, options: typeof COOKIE_CONFIG): string {
+function buildCookieWithMaxAge(name: string, value: string, maxAge: number): string {
   const parts = [`${name}=${encodeURIComponent(value)}`];
 
-  // Only set domain cookie on cloistr.xyz domains
   if (isCloistrDomain()) {
-    parts.push(`domain=${options.domain}`);
+    parts.push('domain=.cloistr.xyz');
   }
 
-  parts.push(`path=${options.path}`);
-  parts.push(`max-age=${options.maxAge}`);
-
-  if (options.secure) {
-    parts.push('secure');
-  }
-
-  parts.push(`samesite=${options.sameSite}`);
+  parts.push('path=/');
+  parts.push(`max-age=${maxAge}`);
+  parts.push('secure');
+  parts.push('samesite=lax');
 
   return parts.join('; ');
+}
+
+/**
+ * Build cookie string with user's TTL preference
+ */
+function buildCookie(name: string, value: string): string {
+  const config = getCookieConfig();
+  return buildCookieWithMaxAge(name, value, config.maxAge);
 }
 
 /**
@@ -89,11 +143,11 @@ function getCookie(name: string): string | null {
 }
 
 /**
- * Set a cookie
+ * Set a cookie with user's TTL preference
  */
 function setCookie(name: string, value: string): void {
   if (!isBrowser()) return;
-  document.cookie = buildCookie(name, value, COOKIE_CONFIG);
+  document.cookie = buildCookie(name, value);
 }
 
 /**
@@ -104,7 +158,7 @@ function deleteCookie(name: string): void {
 
   // Delete with domain (for cloistr.xyz)
   if (isCloistrDomain()) {
-    document.cookie = `${name}=; domain=${COOKIE_CONFIG.domain}; path=/; max-age=0`;
+    document.cookie = `${name}=; domain=.cloistr.xyz; path=/; max-age=0`;
   }
   // Also delete without domain (for local dev)
   document.cookie = `${name}=; path=/; max-age=0`;
@@ -161,6 +215,18 @@ export function clearSharedSession(): void {
   deleteCookie(COOKIE_KEYS.METHOD);
   deleteCookie(COOKIE_KEYS.PUBKEY);
   deleteCookie(COOKIE_KEYS.BUNKER);
+  deleteCookie(COOKIE_KEYS.TTL);
+}
+
+/**
+ * Renew session cookies with fresh TTL
+ * Call this on token refresh for auto-renewal
+ */
+export function renewSession(): void {
+  const session = getSharedSession();
+  if (session) {
+    saveSharedSession(session);
+  }
 }
 
 /**

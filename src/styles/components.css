@@ -734,3 +734,77 @@
 .cloistr-btn-danger:hover:not(:disabled) {
   background: #dc2626;
 }
+
+/* ========================================
+   Settings Modal
+   ======================================== */
+
+.cloistr-settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cloistr-space-lg);
+}
+
+.cloistr-settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cloistr-space-sm);
+}
+
+.cloistr-settings-section-title {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--cloistr-text);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.cloistr-settings-description {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--cloistr-text-muted);
+}
+
+.cloistr-settings-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cloistr-space-xs);
+  margin-top: var(--cloistr-space-xs);
+}
+
+.cloistr-settings-option {
+  display: flex;
+  align-items: center;
+  gap: var(--cloistr-space-sm);
+  padding: var(--cloistr-space-sm);
+  border-radius: var(--cloistr-radius-md);
+  cursor: pointer;
+  transition: background var(--cloistr-transition-fast);
+}
+
+.cloistr-settings-option:hover {
+  background: var(--cloistr-bg-hover);
+}
+
+.cloistr-settings-option input[type="radio"] {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  accent-color: var(--cloistr-primary);
+}
+
+.cloistr-settings-option-label {
+  font-size: 0.875rem;
+  color: var(--cloistr-text);
+}
+
+.cloistr-settings-saved {
+  margin: 0;
+  padding: var(--cloistr-space-sm);
+  font-size: 0.75rem;
+  color: var(--cloistr-success);
+  background: rgba(34, 197, 94, 0.1);
+  border-radius: var(--cloistr-radius-sm);
+  text-align: center;
+}

@@ -13,6 +13,9 @@ export type { LoginPromptProps } from './LoginPrompt';
 export { UserMenu } from './UserMenu';
 export type { UserMenuProps } from './UserMenu';
 
+export { SettingsModal } from './SettingsModal';
+export type { SettingsModalProps } from './SettingsModal';
+
 export { ServiceMenu, defaultServices } from './ServiceMenu';
 export type { ServiceMenuProps, Service } from './ServiceMenu';
 

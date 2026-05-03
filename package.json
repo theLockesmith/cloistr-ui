@@ -1,6 +1,6 @@
 {
   "name": "@cloistr/ui",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Shared React UI components for Cloistr applications",
   "type": "module",
   "main": "./dist/index.js",
