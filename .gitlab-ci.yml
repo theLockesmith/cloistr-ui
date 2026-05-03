@@ -66,5 +66,17 @@ propagate:discovery-ui:
   needs:
     - publish
 
-# Note: cloistr-tasks is on git.coldforge.xyz, can't trigger cross-instance
-# Tasks will need manual update or a webhook-based solution
+propagate:tasks:
+  stage: propagate
+  trigger:
+    project: coldforge/cloistr-tasks
+    branch: master
+    strategy: depend
+  variables:
+    UPSTREAM_TRIGGER: "true"
+    UPSTREAM_PACKAGE: "@cloistr/ui"
+  only:
+    - main
+    - master
+  needs:
+    - publish
