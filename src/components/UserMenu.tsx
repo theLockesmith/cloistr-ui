@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, lazy, Suspense } from 'react';
-import { useNostrAuth } from '../auth';
+import { useNostrAuth } from '../auth/index.js';
 
 // Lazy load SettingsModal for zero overhead until user clicks
 const SettingsModal = lazy(() => import('./SettingsModal'));

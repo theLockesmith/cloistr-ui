@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNostrAuth, useAuthHelpers, isValidBunkerUrl } from '../auth';
+import { useNostrAuth, useAuthHelpers, isValidBunkerUrl } from '../auth/index.js';
 
 export interface LoginModalProps {
   /** Whether the modal is open */

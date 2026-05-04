@@ -3,7 +3,7 @@ export {
   getServiceById,
   buildServiceUrl,
   createServicesForDomain,
-} from './services';
+} from './services.js';
 
 export {
   saveSharedSession,
@@ -17,6 +17,6 @@ export {
   setSessionTTL,
   SESSION_TTL_OPTIONS,
   SESSION_TTL_LABELS,
-} from './session';
-export type { SharedSession, SessionTTL } from './session';
+} from './session.js';
+export type { SharedSession, SessionTTL } from './session.js';
 // Note: AuthMethod type is exported from './auth' (via collab-common)

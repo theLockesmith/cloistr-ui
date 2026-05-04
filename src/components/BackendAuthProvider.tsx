@@ -32,14 +32,14 @@ import {
   connectNip46,
   isNip07Supported,
   type SignerInterface,
-} from '../auth';
+} from '../auth/index.js';
 import {
   saveSharedSession,
   clearSharedSession,
   getSharedSession,
   isCloistrDomain,
   renewSession,
-} from '../lib/session';
+} from '../lib/session.js';
 
 // ============================================
 // Types

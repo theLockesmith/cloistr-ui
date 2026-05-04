@@ -1,4 +1,4 @@
-import type { Service } from '../components/ServiceMenu';
+import type { Service } from '../components/ServiceMenu.js';
 
 /**
  * Default Cloistr services configuration

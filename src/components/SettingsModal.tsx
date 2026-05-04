@@ -13,7 +13,7 @@ import {
   SESSION_TTL_OPTIONS,
   SESSION_TTL_LABELS,
   type SessionTTL,
-} from '../lib/session';
+} from '../lib/session.js';
 
 export interface SettingsModalProps {
   /** Whether the modal is open */

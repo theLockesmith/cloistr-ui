@@ -11,7 +11,7 @@ import {
   useNostrAuth,
   useAuthHelpers,
   isNip07Supported,
-} from '../auth';
+} from '../auth/index.js';
 import {
   getSharedSession,
   saveSharedSession,
@@ -19,7 +19,7 @@ import {
   hasSharedSession,
   isCloistrDomain,
   type SharedSession,
-} from '../lib/session';
+} from '../lib/session.js';
 
 export interface SharedAuthProviderProps {
   children: ReactNode;

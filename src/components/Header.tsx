@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNostrAuth } from '../auth';
+import { useNostrAuth } from '../auth/index.js';
 import { ServiceMenu, Service, defaultServices } from './ServiceMenu';
 import { UserMenu } from './UserMenu';
 import { LoginModal } from './LoginModal';
