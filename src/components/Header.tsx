@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { useNostrAuth } from '../auth/index.js';
-import { ServiceMenu, Service, defaultServices } from './ServiceMenu';
-import { UserMenu } from './UserMenu';
-import { LoginModal } from './LoginModal';
+import { ServiceMenu, Service, defaultServices } from './ServiceMenu.js';
+import { UserMenu } from './UserMenu.js';
+import { LoginModal } from './LoginModal.js';
 
 export interface HeaderProps {
   /** Logo URL or element */

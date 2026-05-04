@@ -6,7 +6,7 @@
  */
 
 import { useState, useCallback } from 'react';
-import { Modal } from './Modal';
+import { Modal } from './Modal.js';
 import {
   getSessionTTL,
   setSessionTTL,
