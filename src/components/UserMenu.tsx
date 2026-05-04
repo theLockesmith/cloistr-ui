@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, lazy, Suspense } from 'react';
 import { useNostrAuth } from '../auth/index.js';
 
 // Lazy load SettingsModal for zero overhead until user clicks
-const SettingsModal = lazy(() => import('./SettingsModal'));
+const SettingsModal = lazy(() => import('./SettingsModal.js'));
 
 export interface UserMenuProps {
   /** URL to user's profile page */
