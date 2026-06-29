@@ -17,7 +17,7 @@ export interface HeaderProps {
   profileUrl?: string;
   /** URL to settings page */
   settingsUrl?: string;
-  /** Custom signer URL */
+  /** Custom signer URL (defaults to the canonical Cloistr signer) */
   signerUrl?: string;
   /** Additional header content (right side) */
   children?: React.ReactNode;
@@ -33,7 +33,7 @@ export function Header({
   activeServiceId,
   profileUrl,
   settingsUrl,
-  signerUrl,
+  signerUrl = 'https://signer.cloistr.xyz',
   children,
 }: HeaderProps) {
   const { authState } = useNostrAuth();

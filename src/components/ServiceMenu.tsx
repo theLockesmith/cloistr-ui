@@ -27,6 +27,8 @@ export interface ServiceMenuProps {
  */
 export const defaultServices: Service[] = [
   { id: 'home', name: 'Home', url: 'https://cloistr.xyz', icon: '🏠' },
+  { id: 'identity', name: 'Identity', url: 'https://me.cloistr.xyz', icon: '🔑' },
+  { id: 'relay', name: 'Relay', url: 'https://relay.cloistr.xyz', icon: '📡' },
   { id: 'space', name: 'Space', url: 'https://space.cloistr.xyz', icon: '🚀' },
   { id: 'docs', name: 'Docs', url: 'https://docs.cloistr.xyz', icon: '📄' },
   { id: 'sheets', name: 'Sheets', url: 'https://sheets.cloistr.xyz', icon: '📊' },
