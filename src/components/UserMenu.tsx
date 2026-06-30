@@ -11,15 +11,28 @@ export interface UserMenuProps {
   settingsUrl?: string;
   /** Disable inline settings modal (use settingsUrl instead) */
   useExternalSettings?: boolean;
+  /** External pubkey for backend-auth apps; falls back to the Nostr context */
+  pubkey?: string;
+  /** External auth method label (e.g. 'nip07' | 'nip46') */
+  method?: string;
+  /** External logout handler for backend-auth apps; falls back to Nostr disconnect */
+  onLogout?: () => void;
 }
 
 /**
- * User dropdown menu showing pubkey and actions
+ * User dropdown menu showing pubkey and actions.
+ *
+ * By default it reads the Nostr auth context. Apps with their own session
+ * (e.g. backend-JWT via BackendAuthProvider) can pass `pubkey`/`onLogout`
+ * to drive it explicitly.
  */
 export function UserMenu({
   profileUrl = '/profile',
   settingsUrl = '/settings',
   useExternalSettings = false,
+  pubkey,
+  method,
+  onLogout,
 }: UserMenuProps) {
   const { authState, disconnect } = useNostrAuth();
   const [isOpen, setIsOpen] = useState(false);
@@ -38,11 +51,16 @@ export function UserMenu({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  if (!authState.isConnected || !authState.pubkey) {
+  // Prefer an explicitly-provided pubkey (backend-auth apps); else the Nostr context.
+  const effectivePubkey = pubkey ?? (authState.isConnected ? authState.pubkey : undefined);
+  const effectiveMethod = method ?? authState.method;
+  const handleLogout = onLogout ?? disconnect;
+
+  if (!effectivePubkey) {
     return null;
   }
 
-  const shortPubkey = `${authState.pubkey.slice(0, 8)}...${authState.pubkey.slice(-4)}`;
+  const shortPubkey = `${effectivePubkey.slice(0, 8)}...${effectivePubkey.slice(-4)}`;
 
   return (
     <div className="cloistr-user-menu" ref={menuRef}>
@@ -53,7 +71,7 @@ export function UserMenu({
         aria-haspopup="menu"
       >
         <span className="cloistr-user-avatar">
-          {authState.pubkey.slice(0, 2).toUpperCase()}
+          {effectivePubkey.slice(0, 2).toUpperCase()}
         </span>
         <span className="cloistr-user-pubkey">{shortPubkey}</span>
       </button>
@@ -61,11 +79,11 @@ export function UserMenu({
       {isOpen && (
         <div className="cloistr-user-menu-dropdown" role="menu">
           <div className="cloistr-user-menu-header">
-            <span className="cloistr-user-menu-pubkey-full" title={authState.pubkey}>
-              {authState.pubkey.slice(0, 16)}...
+            <span className="cloistr-user-menu-pubkey-full" title={effectivePubkey}>
+              {effectivePubkey.slice(0, 16)}...
             </span>
             <span className="cloistr-user-menu-method">
-              {authState.method === 'nip07' ? 'Extension' : 'Bunker'}
+              {effectiveMethod === 'nip07' ? 'Extension' : 'Bunker'}
             </span>
           </div>
 
@@ -92,7 +110,7 @@ export function UserMenu({
             <button
               className="cloistr-user-menu-item cloistr-user-menu-logout"
               onClick={() => {
-                disconnect();
+                handleLogout();
                 setIsOpen(false);
               }}
               role="menuitem"
