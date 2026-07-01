@@ -98,6 +98,11 @@ export function Header({
               method={auth?.method}
               onLogout={auth?.onLogout}
             />
+          ) : externalAuth && !auth?.onSignIn ? (
+            // Login screens for backend-auth apps pass auth={{ authenticated: false }}
+            // with no onSignIn: the page IS the login form, so render no redundant
+            // Sign In control (just the logo + service menu).
+            null
           ) : (
             <button
               className="cloistr-btn cloistr-btn-primary"
