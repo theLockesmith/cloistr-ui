@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNostrAuth } from '../auth/index.js';
-import { ServiceMenu, Service, defaultServices } from './ServiceMenu.js';
+import { ServiceMenu, defaultServices } from './ServiceMenu.js';
 import { UserMenu } from './UserMenu.js';
 import { LoginModal } from './LoginModal.js';
 
@@ -26,9 +26,13 @@ export interface HeaderProps {
   logo?: React.ReactNode;
   /** Link for the logo */
   logoHref?: string;
-  /** Services to show in the service menu */
-  services?: Service[];
-  /** Currently active service ID */
+  /**
+   * Which service is currently active (highlighted) in the menu. This is the
+   * ONLY way apps customize the menu — the service catalog itself is owned by
+   * @cloistr/ui (see `defaultServices`). There is deliberately no `services`
+   * prop: passing a custom catalog would fragment the nav across apps. To add
+   * or change a service, PR `defaultServices` in this package.
+   */
   activeServiceId?: string;
   /** URL to user's profile page */
   profileUrl?: string;
@@ -53,7 +57,6 @@ export interface HeaderProps {
 export function Header({
   logo,
   logoHref = 'https://cloistr.xyz',
-  services = defaultServices,
   activeServiceId,
   profileUrl,
   settingsUrl,
@@ -82,7 +85,7 @@ export function Header({
           <a href={logoHref} className="cloistr-header-logo">
             {logo || defaultLogo}
           </a>
-          <ServiceMenu services={services} activeServiceId={activeServiceId} />
+          <ServiceMenu services={defaultServices} activeServiceId={activeServiceId} />
         </div>
 
         <div className="cloistr-header-right">

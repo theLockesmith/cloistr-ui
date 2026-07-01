@@ -1,6 +1,6 @@
 {
   "name": "@cloistr/ui",
-  "version": "0.5.4",
+  "version": "0.6.0",
   "description": "Shared React UI components for Cloistr applications",
   "type": "module",
   "main": "./dist/index.js",
@@ -28,7 +28,8 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc && cp -r src/styles dist/",
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
+    "build": "npm run typecheck && tsc && cp -r src/styles dist/",
     "dev": "tsc --watch",
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run build"
