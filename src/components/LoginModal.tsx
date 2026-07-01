@@ -14,12 +14,33 @@ export interface LoginModalProps {
  * Login modal with NIP-07 and NIP-46 options
  */
 export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloistr.xyz' }: LoginModalProps) {
-  const { connectNip07, connectNip46, authState } = useNostrAuth();
+  const { connectNip07, connectNip46, connectViaNostrConnect, authState } = useNostrAuth();
   const { isNip07Available } = useAuthHelpers();
   const [bunkerUrl, setBunkerUrl] = useState('');
   const [showBunkerInput, setShowBunkerInput] = useState(false);
+  const [nostrConnectUri, setNostrConnectUri] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   if (!isOpen) return null;
+
+  // "Login With Cloistr": client-initiated nostrconnect://. We generate the URI,
+  // show it for the user to approve in their signer (Connect an App), and resolve
+  // once the signer sends the approval over the relay.
+  const handleLoginWithCloistr = async () => {
+    setNostrConnectUri(null);
+    setCopied(false);
+    await connectViaNostrConnect(undefined, (uri) => setNostrConnectUri(uri));
+    if (!authState.error) {
+      onClose();
+    }
+  };
+
+  const copyUri = () => {
+    if (nostrConnectUri && typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(nostrConnectUri);
+      setCopied(true);
+    }
+  };
 
   const handleNip07 = async () => {
     await connectNip07();
@@ -80,15 +101,43 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
                   Use Bunker URL
                 </button>
 
-                <a
-                  href={signerUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <button
                   className="cloistr-btn cloistr-btn-outline"
+                  onClick={handleLoginWithCloistr}
+                  disabled={authState.isConnecting}
                 >
-                  Login With Cloistr
-                </a>
+                  {authState.isConnecting ? 'Waiting for approval…' : 'Login With Cloistr'}
+                </button>
               </div>
+
+              {nostrConnectUri && (
+                <div className="cloistr-nostrconnect">
+                  <p>Approve this connection in your Cloistr signer:</p>
+                  <code
+                    className="cloistr-nostrconnect-uri"
+                    style={{ display: 'block', wordBreak: 'break-all', fontSize: '12px', padding: '8px', background: 'rgba(0,0,0,0.05)', borderRadius: '4px' }}
+                  >
+                    {nostrConnectUri}
+                  </code>
+                  <div className="cloistr-form-actions" style={{ marginTop: '8px' }}>
+                    <button className="cloistr-btn cloistr-btn-secondary" onClick={copyUri}>
+                      {copied ? 'Copied' : 'Copy link'}
+                    </button>
+                    <a
+                      href={`${signerUrl}/apps`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="cloistr-btn cloistr-btn-primary"
+                    >
+                      Open signer → Connect an App
+                    </a>
+                  </div>
+                  <p className="cloistr-login-help">
+                    Paste the link into the signer's "Connect an App", pick a key, and approve. This
+                    window signs in automatically once approved.
+                  </p>
+                </div>
+              )}
 
               <p className="cloistr-login-help">
                 Don't have a Nostr identity?{' '}
