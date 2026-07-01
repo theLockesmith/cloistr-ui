@@ -1,5 +1,5 @@
 /**
- * Re-export auth from @cloistr/collab-common
+ * Re-export auth from @cloistr/auth
  * This provides a unified auth system across all Cloistr applications.
  */
 export {
@@ -22,7 +22,7 @@ export {
   AuthError,
   Nip07Error,
   Nip46Error,
-} from '@cloistr/collab-common/auth';
+} from '@cloistr/auth';
 
 export type {
   AuthState,
@@ -32,4 +32,4 @@ export type {
   AuthContextValue,
   Nip46Config,
   AuthProviderProps,
-} from '@cloistr/collab-common/auth';
+} from '@cloistr/auth';

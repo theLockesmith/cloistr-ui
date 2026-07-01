@@ -5,7 +5,7 @@
  * This allows single sign-on: login once on any service, authenticated everywhere.
  */
 
-import type { AuthMethod } from '@cloistr/collab-common/auth';
+import type { AuthMethod } from '@cloistr/auth';
 
 export interface SharedSession {
   method: AuthMethod;
