@@ -5,6 +5,7 @@ default:
 stages:
   - build
   - publish
+  - trigger
 
 variables:
   NODE_VERSION: "22"
@@ -33,6 +34,17 @@ publish:
     - echo "@cloistr:registry=https://git.aegis-hq.xyz/api/v4/projects/${CI_PROJECT_ID}/packages/npm/" > .npmrc
     - echo "//git.aegis-hq.xyz/api/v4/projects/${CI_PROJECT_ID}/packages/npm/:_authToken=${CI_JOB_TOKEN}" >> .npmrc
     - npm publish --ignore-scripts
+  only:
+    - main
+    - master
+    - tags
+
+trigger-renovate:
+  stage: trigger
+  needs: ["publish"]
+  trigger:
+    project: coldforge/ci-templates
+    branch: main
   only:
     - main
     - master
