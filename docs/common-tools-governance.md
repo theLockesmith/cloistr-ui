@@ -207,6 +207,18 @@ Every frontend and every shared package is TypeScript; no `allowJs` in any `@clo
 
 No `strict: false`; no `any` in new code.
 
+### 5.5 Styling — Tokens Are the Standard, Not the Syntax
+
+The thing we standardize is the **design-token layer**, not a CSS framework. That is what makes every app look like Cloistr regardless of how each writes CSS. Three layers, deliberately different:
+
+1. **Design tokens = the source of truth (authoritative).** Colors, spacing, typography, radii, shadows live as **CSS custom properties** in `@cloistr/ui`'s shipped stylesheet (to be promoted to a small `@cloistr/tokens` package). Every color/space value in any app resolves to a token — never a raw hex or magic number. This is the real "CSS standard"; the rest is delivery.
+2. **`@cloistr/ui` (the library) = plain CSS driven by tokens — framework-agnostic.** The library **must not** ship Tailwind utility classes: that would force every one of ~13 consuming apps to install + configure the same Tailwind preset (tight coupling, cross-app version lock). Like Radix/MUI/shadcn primitives, `@cloistr/ui` ships plain CSS + token variables so it's consumable by any app regardless of its styling choice. **Do not add `tailwindcss` as a `@cloistr/ui` dependency.**
+3. **Apps = Tailwind via a shared `@cloistr/tailwind-config` preset generated *from* the tokens.** Tailwind is the app-layer standard **because** a token-only preset makes going off-system impossible (no arbitrary values). It is an app choice, never imposed on the library.
+
+**Current state (2026-07-02):** fragmented — 10 apps use plain CSS + `@cloistr/ui`'s stylesheet, only `space` + `email` use Tailwind. **Target:** all apps on the `@cloistr/tailwind-config` preset, migrated **gradually** (new apps via the scaffold; existing apps when next substantially touched — no big-bang). Both styles may coexist during transition; a plain-CSS app is not "broken," just not yet migrated.
+
+**Anti-patterns:** raw hex/px values instead of tokens; a bespoke in-house utility framework (reinventing Tailwind — own the *preset*, not the engine); CSS-in-JS runtime libraries (`styled-components`/`emotion` — runtime cost, against potato-grade); `@cloistr/ui` depending on Tailwind.
+
 ---
 
 ## 6. The `@cloistr/ui` Component Contract
