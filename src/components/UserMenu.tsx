@@ -17,6 +17,8 @@ export interface UserMenuProps {
   method?: string;
   /** External logout handler for backend-auth apps; falls back to Nostr disconnect */
   onLogout?: () => void;
+  /** Signer base URL for central logout (defaults to signer.cloistr.xyz) */
+  signerUrl?: string;
 }
 
 /**
@@ -33,6 +35,7 @@ export function UserMenu({
   pubkey,
   method,
   onLogout,
+  signerUrl = 'https://signer.cloistr.xyz',
 }: UserMenuProps) {
   const { authState, disconnect } = useNostrAuth();
   const [isOpen, setIsOpen] = useState(false);
@@ -54,7 +57,21 @@ export function UserMenu({
   // Prefer an explicitly-provided pubkey (backend-auth apps); else the Nostr context.
   const effectivePubkey = pubkey ?? (authState.isConnected ? authState.pubkey : undefined);
   const effectiveMethod = method ?? authState.method;
-  const handleLogout = onLogout ?? disconnect;
+
+  // Central logout: best-effort call to the signer to revoke the shared session
+  // cookie, then fall through to the local disconnect/onLogout.
+  const handleSignOut = async () => {
+    setIsOpen(false);
+    try {
+      await fetch(`${signerUrl}/api/v1/users/logout`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+    } catch {
+      // Best-effort — don't block local disconnect on network failure
+    }
+    (onLogout ?? disconnect)();
+  };
 
   if (!effectivePubkey) {
     return null;
@@ -109,10 +126,7 @@ export function UserMenu({
             )}
             <button
               className="cloistr-user-menu-item cloistr-user-menu-logout"
-              onClick={() => {
-                handleLogout();
-                setIsOpen(false);
-              }}
+              onClick={handleSignOut}
               role="menuitem"
             >
               Sign Out

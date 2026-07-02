@@ -97,6 +97,7 @@ export function Header({
               pubkey={auth?.pubkey}
               method={auth?.method}
               onLogout={auth?.onLogout}
+              signerUrl={signerUrl}
             />
           ) : externalAuth && !auth?.onSignIn ? (
             // Login screens for backend-auth apps pass auth={{ authenticated: false }}
