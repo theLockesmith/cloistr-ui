@@ -5,7 +5,7 @@ export { Footer } from './Footer.js';
 export type { FooterProps, FooterLink } from './Footer.js';
 
 export { LoginModal } from './LoginModal.js';
-export type { LoginModalProps } from './LoginModal.js';
+export type { LoginModalProps, SessionData } from './LoginModal.js';
 
 export { LoginPrompt } from './LoginPrompt.js';
 export type { LoginPromptProps } from './LoginPrompt.js';

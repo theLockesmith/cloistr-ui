@@ -1,5 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useNostrAuth, useAuthHelpers, isValidBunkerUrl } from '../auth/index.js';
+
+/** Data passed to onSession callback in session mode */
+export interface SessionData {
+  token: string;
+  expiresAt: string;
+  user: unknown;
+  /** Cleartext password — needed for FROST share-storage unlock on the signer */
+  password: string;
+  username: string;
+}
 
 export interface LoginModalProps {
   /** Whether the modal is open */
@@ -8,6 +18,14 @@ export interface LoginModalProps {
   onClose: () => void;
   /** Custom signer URL (defaults to signer.cloistr.xyz) */
   signerUrl?: string;
+  /**
+   * Mode: 'connect' (default) performs the full nostrconnect flow after login.
+   * 'session' stops after password auth and calls onSession — used by the signer
+   * which needs a JWT session, not a Nostr connect.
+   */
+  mode?: 'connect' | 'session';
+  /** Called in session mode on successful password login or signup */
+  onSession?: (data: SessionData) => void | Promise<void>;
 }
 
 type Screen = 'method' | 'bunker' | 'login' | 'signup' | 'pending' | 'consent';
@@ -25,7 +43,7 @@ type Screen = 'method' | 'bunker' | 'login' | 'signup' | 'pending' | 'consent';
  * IMPORTANT: every fetch to the signer uses credentials:'include' so the
  * parent-domain .cloistr.xyz session cookie is both sent and received.
  */
-export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloistr.xyz' }: LoginModalProps) {
+export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloistr.xyz', mode = 'connect', onSession }: LoginModalProps) {
   const { connectNip07, connectNip46, connectViaNostrConnect, authState } = useNostrAuth();
   const { isNip07Available } = useAuthHelpers();
 
@@ -47,7 +65,7 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
 
   // Signup form
   const [su, setSu] = useState({
-    username: '', password: '', passwordConfirm: '', importNsec: '', showImportKey: false,
+    username: '', password: '', passwordConfirm: '', importNsec: '', showImportKey: false, inviteCode: '',
   });
   const [suBusy, setSuBusy] = useState(false);
   const [suStatus, setSuStatus] = useState<string | null>(null);
@@ -62,16 +80,21 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
   // Local error (form-level; distinct from authState.error which is auth-layer)
   const [localError, setLocalError] = useState<string | null>(null);
 
+  // Ref to the active nostrconnect session so goBack() can abort it.
+  const nostrConnectSessionRef = useRef<{ cancel(): void } | null>(null);
+
   if (!isOpen) return null;
 
   // ── Navigation ────────────────────────────────────────────────────────────
 
   const goBack = () => {
+    nostrConnectSessionRef.current?.cancel();
+    nostrConnectSessionRef.current = null;
     setScreen('method');
     setBunkerUrl('');
     setLf({ username: '', password: '' });
     setLfBusy(false);
-    setSu({ username: '', password: '', passwordConfirm: '', importNsec: '', showImportKey: false });
+    setSu({ username: '', password: '', passwordConfirm: '', importNsec: '', showImportKey: false, inviteCode: '' });
     setSuBusy(false);
     setSuStatus(null);
     setNostrConnectUri(null);
@@ -138,7 +161,8 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
     if (!sessionKeyId) {
       // No active session — show the existing manual URI-paste flow unchanged
       setPendingIsManual(true);
-      await connectViaNostrConnect(undefined, (uri) => {
+      await connectViaNostrConnect(undefined, (uri, session) => {
+        nostrConnectSessionRef.current = session;
         setNostrConnectUri(uri);
         setScreen('pending');
       });
@@ -149,7 +173,8 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
     // 2. Active session found — generate URI and attempt session connect
     setPendingIsManual(false);
     const capturedKeyId = sessionKeyId;
-    await connectViaNostrConnect(undefined, async (uri) => {
+    await connectViaNostrConnect(undefined, async (uri, session) => {
+      nostrConnectSessionRef.current = session;
       setNostrConnectUri(uri);
       setScreen('pending');
       try {
@@ -222,9 +247,9 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
     }
   };
 
-  // Password login for existing Cloistr accounts:
-  // POST /users/login (credentials:'include' → receives session cookie)
-  // → GET /keys → connectViaNostrConnect auto-approved via Bearer.
+  // Password login for existing Cloistr accounts.
+  // In 'session' mode: returns the JWT to the caller via onSession().
+  // In 'connect' mode: POST /users/login → GET /keys → connectViaNostrConnect auto-approved.
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLocalError(null);
@@ -242,8 +267,23 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
         const b = await loginRes.json().catch(() => ({}));
         throw new Error((b as { error?: string }).error || `Login failed (${loginRes.status})`);
       }
-      const token = ((await loginRes.json()) as { token?: string }).token;
+      const loginBody = (await loginRes.json()) as { token?: string; expires_at?: string; user?: unknown };
+      const token = loginBody.token;
+      if (!token) throw new Error('Login response missing token');
 
+      if (mode === 'session') {
+        await onSession?.({
+          token,
+          expiresAt: loginBody.expires_at ?? '',
+          user: loginBody.user ?? null,
+          password: lf.password,
+          username: lf.username,
+        });
+        onClose();
+        return;
+      }
+
+      // 'connect' mode: continue with keys + nostrconnect
       const keysRes = await fetch(`${api}/keys`, {
         headers: { Authorization: `Bearer ${token}` },
         credentials: 'include',
@@ -257,7 +297,8 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
       const keyId = (keys[0] as { id: string }).id;
 
       setPendingIsManual(false);
-      await connectViaNostrConnect(undefined, async (uri) => {
+      await connectViaNostrConnect(undefined, async (uri, session) => {
+        nostrConnectSessionRef.current = session;
         setNostrConnectUri(uri);
         setScreen('pending');
         try {
@@ -284,8 +325,9 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
     }
   };
 
-  // Signup: register → login (credentials:'include' → session cookie)
-  // → GET /keys → connectViaNostrConnect auto-approved.
+  // Signup: register → login (credentials:'include' → session cookie).
+  // In 'session' mode: returns the JWT to the caller via onSession().
+  // In 'connect' mode: → GET /keys → connectViaNostrConnect auto-approved.
   // Supports optional import_nsec for users who already have a Nostr key.
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -301,6 +343,7 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
       setSuStatus('Creating your account…');
       const regBody: Record<string, string> = { username: su.username, password: su.password };
       if (su.showImportKey && su.importNsec) regBody.import_nsec = su.importNsec;
+      if (mode === 'session' && su.inviteCode.trim()) regBody.invite_code = su.inviteCode.trim();
       const reg = await fetch(`${api}/users/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -320,8 +363,23 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
         body: JSON.stringify({ username: su.username, password: su.password }),
       });
       if (!login.ok) throw new Error('Account created, but auto sign-in failed — try signing in.');
-      const token = ((await login.json()) as { token?: string }).token;
+      const loginBody = (await login.json()) as { token?: string; expires_at?: string; user?: unknown };
+      const token = loginBody.token;
+      if (!token) throw new Error('Login response missing token');
 
+      if (mode === 'session') {
+        await onSession?.({
+          token,
+          expiresAt: loginBody.expires_at ?? '',
+          user: loginBody.user ?? null,
+          password: su.password,
+          username: su.username,
+        });
+        onClose();
+        return;
+      }
+
+      // 'connect' mode: continue with keys + nostrconnect
       const keysRes = await fetch(`${api}/keys`, {
         headers: { Authorization: `Bearer ${token}` },
         credentials: 'include',
@@ -335,7 +393,8 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
 
       setSuStatus('Connecting your new identity…');
       setPendingIsManual(false);
-      await connectViaNostrConnect(undefined, async (uri) => {
+      await connectViaNostrConnect(undefined, async (uri, session) => {
+        nostrConnectSessionRef.current = session;
         setNostrConnectUri(uri);
         setScreen('pending');
         try {
@@ -418,13 +477,15 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
                 >
                   Use Bunker URL
                 </button>
-                <button
-                  className="cloistr-btn cloistr-btn-outline"
-                  onClick={handleLoginWithCloistr}
-                  disabled={authState.isConnecting}
-                >
-                  {authState.isConnecting ? 'Waiting for approval…' : 'Login With Cloistr'}
-                </button>
+                {mode === 'connect' && (
+                  <button
+                    className="cloistr-btn cloistr-btn-outline"
+                    onClick={handleLoginWithCloistr}
+                    disabled={authState.isConnecting}
+                  >
+                    {authState.isConnecting ? 'Waiting for approval…' : 'Login With Cloistr'}
+                  </button>
+                )}
                 <button
                   className="cloistr-btn cloistr-btn-secondary"
                   onClick={() => { setLocalError(null); setScreen('login'); }}
@@ -574,6 +635,20 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
                     onChange={(e) => setSu(s => ({ ...s, importNsec: e.target.value }))}
                     placeholder="nsec1… or hex"
                     autoComplete="off"
+                  />
+                </>
+              )}
+              {mode === 'session' && (
+                <>
+                  <label htmlFor="su-invite-code">Invite Code (optional)</label>
+                  <input
+                    id="su-invite-code"
+                    className="cloistr-input"
+                    type="text"
+                    value={su.inviteCode}
+                    onChange={(e) => setSu(s => ({ ...s, inviteCode: e.target.value }))}
+                    placeholder="Enter invite code if you have one"
+                    disabled={suBusy}
                   />
                 </>
               )}
