@@ -10,12 +10,20 @@ export interface LoginModalProps {
   signerUrl?: string;
 }
 
-type Screen = 'method' | 'bunker' | 'login' | 'signup' | 'pending';
+type Screen = 'method' | 'bunker' | 'login' | 'signup' | 'pending' | 'consent';
 
 /**
  * Login modal with NIP-07, NIP-46, password login, and signup options.
- * Every sub-state (bunker, login, signup, pending) has Back/Cancel to return
- * to method selection.
+ * Every sub-state (bunker, login, signup, pending, consent) has Back/Cancel
+ * to return to method selection.
+ *
+ * "Login With Cloistr" is SSO-aware: when an active signer session cookie
+ * exists, nostrconnect is auto-approved (or first-time consent is requested)
+ * via POST /api/v1/nostrconnect/session. Falls back to manual URI-paste when
+ * no session is present.
+ *
+ * IMPORTANT: every fetch to the signer uses credentials:'include' so the
+ * parent-domain .cloistr.xyz session cookie is both sent and received.
  */
 export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloistr.xyz' }: LoginModalProps) {
   const { connectNip07, connectNip46, connectViaNostrConnect, authState } = useNostrAuth();
@@ -23,8 +31,7 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
 
   // Navigation
   const [screen, setScreen] = useState<Screen>('method');
-  // true = "Login With Cloistr" (manual, user pastes URI into signer)
-  // false = password-login or signup (auto-approved via API)
+  // true = "Login With Cloistr" manual fallback (no session; user pastes URI)
   const [pendingIsManual, setPendingIsManual] = useState(false);
 
   // Shared pending state (nostrconnect URI)
@@ -45,6 +52,13 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
   const [suBusy, setSuBusy] = useState(false);
   const [suStatus, setSuStatus] = useState<string | null>(null);
 
+  // Consent screen (first-time SSO per-app consent)
+  const [consentAppName, setConsentAppName] = useState<string | null>(null);
+  const [consentAppId, setConsentAppId] = useState<string | null>(null);
+  const [consentUri, setConsentUri] = useState<string | null>(null);
+  const [consentKeyId, setConsentKeyId] = useState<string | null>(null);
+  const [consentBusy, setConsentBusy] = useState(false);
+
   // Local error (form-level; distinct from authState.error which is auth-layer)
   const [localError, setLocalError] = useState<string | null>(null);
 
@@ -64,6 +78,11 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
     setCopied(false);
     setLocalError(null);
     setPendingIsManual(false);
+    setConsentAppName(null);
+    setConsentAppId(null);
+    setConsentUri(null);
+    setConsentKeyId(null);
+    setConsentBusy(false);
   };
 
   // ── Auth handlers ─────────────────────────────────────────────────────────
@@ -83,22 +102,129 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
     }
   };
 
-  // "Login With Cloistr": client-generated nostrconnect://, user manually
-  // approves it in their signer app.
+  // "Login With Cloistr": SSO-aware nostrconnect flow.
+  //
+  // 1. Probe for an active session via GET /api/v1/keys (credentials:'include').
+  //    - 200 → session exists, keyId obtained → proceed to auto-approval path.
+  //    - 401 or error → no session → fall back to manual URI-paste (unchanged UX).
+  // 2. Auto-approval: generate nostrconnect URI, POST /api/v1/nostrconnect/session.
+  //    - {success:true}          → silently signed in, onClose().
+  //    - {consent_required:true} → show consent screen for first-time app approval.
+  //    - 401                     → session expired mid-flight → show manual paste.
+  //    - error                   → surface error message.
   const handleLoginWithCloistr = async () => {
     setLocalError(null);
     setNostrConnectUri(null);
     setCopied(false);
-    setPendingIsManual(true);
-    await connectViaNostrConnect(undefined, (uri) => {
+
+    // 1. Probe for active session cookie
+    let sessionKeyId: string | null = null;
+    try {
+      const keysRes = await fetch(`${signerUrl}/api/v1/keys`, {
+        credentials: 'include',
+      });
+      if (keysRes.ok) {
+        const keysBody = (await keysRes.json()) as unknown;
+        const keys = Array.isArray(keysBody)
+          ? keysBody
+          : ((keysBody as { keys?: Array<{ id: string }> }).keys ?? []);
+        if (keys.length) sessionKeyId = (keys[0] as { id: string }).id;
+      }
+      // 401 = no session → sessionKeyId remains null → fall back to manual
+    } catch {
+      // Network error → fall back to manual
+    }
+
+    if (!sessionKeyId) {
+      // No active session — show the existing manual URI-paste flow unchanged
+      setPendingIsManual(true);
+      await connectViaNostrConnect(undefined, (uri) => {
+        setNostrConnectUri(uri);
+        setScreen('pending');
+      });
+      if (!authState.error) onClose();
+      return;
+    }
+
+    // 2. Active session found — generate URI and attempt session connect
+    setPendingIsManual(false);
+    const capturedKeyId = sessionKeyId;
+    await connectViaNostrConnect(undefined, async (uri) => {
       setNostrConnectUri(uri);
       setScreen('pending');
+      try {
+        const sessionRes = await fetch(`${signerUrl}/api/v1/nostrconnect/session`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ uri, key_id: capturedKeyId }),
+        });
+        if (sessionRes.status === 401) {
+          // Session expired between the probe and now — show manual paste
+          setPendingIsManual(true);
+          return;
+        }
+        if (!sessionRes.ok) {
+          const b = await sessionRes.json().catch(() => ({}));
+          setLocalError((b as { error?: string }).error ?? 'Session connect failed');
+          return;
+        }
+        const body = (await sessionRes.json()) as {
+          success?: boolean;
+          consent_required?: boolean;
+          app_id?: string;
+          app_name?: string;
+        };
+        if (body.consent_required) {
+          setConsentAppName(body.app_name ?? 'this app');
+          setConsentAppId(body.app_id ?? null);
+          setConsentUri(uri);
+          setConsentKeyId(capturedKeyId);
+          setScreen('consent');
+        } else if (body.success) {
+          // SSO win — signed in silently
+          onClose();
+        }
+      } catch {
+        setLocalError('Network error during session connect');
+      }
     });
     if (!authState.error) onClose();
   };
 
+  // Consent approval: re-POST to /nostrconnect/session with consent:true.
+  const handleConsentApprove = async () => {
+    if (!consentUri || !consentKeyId) return;
+    setConsentBusy(true);
+    setLocalError(null);
+    try {
+      const sessionRes = await fetch(`${signerUrl}/api/v1/nostrconnect/session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ uri: consentUri, key_id: consentKeyId, consent: true }),
+      });
+      if (!sessionRes.ok) {
+        const b = await sessionRes.json().catch(() => ({}));
+        setLocalError((b as { error?: string }).error ?? 'Approval failed');
+        return;
+      }
+      const body = (await sessionRes.json()) as { success?: boolean };
+      if (body.success) {
+        onClose();
+      } else {
+        setLocalError('Approval did not succeed');
+      }
+    } catch {
+      setLocalError('Network error during consent approval');
+    } finally {
+      setConsentBusy(false);
+    }
+  };
+
   // Password login for existing Cloistr accounts:
-  // POST /users/login → GET /keys → connectViaNostrConnect auto-approved.
+  // POST /users/login (credentials:'include' → receives session cookie)
+  // → GET /keys → connectViaNostrConnect auto-approved via Bearer.
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLocalError(null);
@@ -109,6 +235,7 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
       const loginRes = await fetch(`${api}/users/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ username: lf.username, password: lf.password }),
       });
       if (!loginRes.ok) {
@@ -117,7 +244,10 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
       }
       const token = ((await loginRes.json()) as { token?: string }).token;
 
-      const keysRes = await fetch(`${api}/keys`, { headers: { Authorization: `Bearer ${token}` } });
+      const keysRes = await fetch(`${api}/keys`, {
+        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include',
+      });
       if (!keysRes.ok) throw new Error('Failed to fetch signing keys');
       const keysBody = (await keysRes.json()) as unknown;
       const keys = Array.isArray(keysBody)
@@ -134,6 +264,7 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
           const approveRes = await fetch(`${api}/nostrconnect`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            credentials: 'include',
             body: JSON.stringify({ uri, key_id: keyId }),
           });
           if (!approveRes.ok) {
@@ -153,7 +284,8 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
     }
   };
 
-  // Signup: register → login → GET /keys → connectViaNostrConnect auto-approved.
+  // Signup: register → login (credentials:'include' → session cookie)
+  // → GET /keys → connectViaNostrConnect auto-approved.
   // Supports optional import_nsec for users who already have a Nostr key.
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -172,6 +304,7 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
       const reg = await fetch(`${api}/users/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(regBody),
       });
       if (!reg.ok) {
@@ -183,12 +316,16 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
       const login = await fetch(`${api}/users/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ username: su.username, password: su.password }),
       });
       if (!login.ok) throw new Error('Account created, but auto sign-in failed — try signing in.');
       const token = ((await login.json()) as { token?: string }).token;
 
-      const keysRes = await fetch(`${api}/keys`, { headers: { Authorization: `Bearer ${token}` } });
+      const keysRes = await fetch(`${api}/keys`, {
+        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include',
+      });
       const keysBody = (await keysRes.json()) as unknown;
       const keys = Array.isArray(keysBody)
         ? keysBody
@@ -205,6 +342,7 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
           const approveRes = await fetch(`${api}/nostrconnect`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            credentials: 'include',
             body: JSON.stringify({ uri, key_id: keyId }),
           });
           if (!approveRes.ok) {
@@ -244,6 +382,7 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
     login: 'Log In',
     signup: 'Create Account',
     pending: 'Connecting…',
+    consent: 'Confirm Access',
   };
 
   return (
@@ -536,6 +675,38 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
               <div className="cloistr-form-actions" style={{ marginTop: '12px' }}>
                 <button type="button" className="cloistr-btn cloistr-btn-secondary" onClick={goBack}>
                   Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Consent: first-time per-app SSO approval ──────────────────── */}
+          {screen === 'consent' && (
+            <div className="cloistr-consent">
+              <p>
+                Allow <strong>{consentAppName}</strong> to use your Cloistr identity?
+              </p>
+              {consentAppId && (
+                <p className="cloistr-login-help" style={{ fontSize: '12px' }}>
+                  App: {consentAppId}
+                </p>
+              )}
+              <div className="cloistr-form-actions" style={{ marginTop: '16px' }}>
+                <button
+                  type="button"
+                  className="cloistr-btn cloistr-btn-secondary"
+                  onClick={goBack}
+                  disabled={consentBusy}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="cloistr-btn cloistr-btn-primary"
+                  onClick={handleConsentApprove}
+                  disabled={consentBusy}
+                >
+                  {consentBusy ? 'Approving…' : 'Approve'}
                 </button>
               </div>
             </div>
