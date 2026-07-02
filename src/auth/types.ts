@@ -47,6 +47,16 @@ export interface AuthContextValue {
   connectNip07: () => Promise<void>;
   /** Connect using NIP-46 (bunker URL) */
   connectNip46: (bunkerUrl: string) => Promise<void>;
+  /**
+   * Connect via a nostrconnect URI that is auto-approved by the caller.
+   * The library generates the URI, calls onApprove with it (so the caller
+   * can forward it to the signer API), then waits for the signer to respond
+   * on the relay and sets auth state from the result.
+   */
+  connectViaNostrConnect: (
+    options: undefined | Record<string, unknown>,
+    onApprove: (uri: string) => Promise<void>
+  ) => Promise<void>;
   /** Disconnect and clear auth state */
   disconnect: () => void;
 }
