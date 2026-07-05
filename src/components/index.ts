@@ -40,7 +40,7 @@ export type { SpinnerProps, SpinnerSize, SpinnerVariant, LoadingOverlayProps, Sk
 export { Modal, ConfirmModal } from './Modal.js';
 export type { ModalProps, ModalSize, ConfirmModalProps } from './Modal.js';
 
-export { ThemeProvider, useTheme } from './ThemeProvider.js';
+export { ThemeProvider, useTheme, useThemeOptional } from './ThemeProvider.js';
 export type { ThemeProviderProps, ThemeContextValue, ThemeMode } from './ThemeProvider.js';
 export { ThemeToggle } from './ThemeToggle.js';
 export type { ThemeToggleProps } from './ThemeToggle.js';

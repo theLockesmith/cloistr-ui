@@ -113,3 +113,12 @@ export function useTheme(): ThemeContextValue {
   if (!ctx) throw new Error('useTheme must be used within a ThemeProvider');
   return ctx;
 }
+
+/**
+ * Like useTheme, but returns null instead of throwing when no ThemeProvider is
+ * mounted. Lets shared components (e.g. Header/ThemeToggle) render gracefully in
+ * apps that haven't adopted ThemeProvider yet.
+ */
+export function useThemeOptional(): ThemeContextValue | null {
+  return useContext(ThemeContext);
+}

@@ -3,6 +3,7 @@ import { useNostrAuth } from '../auth/index.js';
 import { ServiceMenu, defaultServices } from './ServiceMenu.js';
 import { UserMenu } from './UserMenu.js';
 import { LoginModal } from './LoginModal.js';
+import { ThemeToggle } from './ThemeToggle.js';
 
 /** Cloistr wordmark logo, inlined as a data URI so consumers need no asset pipeline. */
 const CLOISTR_WORDMARK =
@@ -89,6 +90,7 @@ export function Header({
         </div>
 
         <div className="cloistr-header-right">
+          <ThemeToggle />
           {children}
           {isAuthed ? (
             <UserMenu

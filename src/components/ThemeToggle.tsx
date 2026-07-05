@@ -3,7 +3,7 @@
  * Must be rendered inside a <ThemeProvider>.
  */
 
-import { useTheme, type ThemeMode } from './ThemeProvider.js';
+import { useThemeOptional, type ThemeMode } from './ThemeProvider.js';
 
 const ICON: Record<ThemeMode, string> = {
   light: '☀️',
@@ -24,7 +24,10 @@ export interface ThemeToggleProps {
 }
 
 export function ThemeToggle({ showLabel = false, className }: ThemeToggleProps) {
-  const { theme, toggleTheme } = useTheme();
+  const ctx = useThemeOptional();
+  // Render nothing if no ThemeProvider is mounted (app hasn't adopted it yet).
+  if (!ctx) return null;
+  const { theme, toggleTheme } = ctx;
   return (
     <button
       type="button"
