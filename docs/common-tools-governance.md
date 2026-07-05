@@ -219,6 +219,28 @@ The thing we standardize is the **design-token layer**, not a CSS framework. Tha
 
 **Anti-patterns:** raw hex/px values instead of tokens; a bespoke in-house utility framework (reinventing Tailwind — own the *preset*, not the engine); CSS-in-JS runtime libraries (`styled-components`/`emotion` — runtime cost, against potato-grade); `@cloistr/ui` depending on Tailwind.
 
+### 5.6 Theming (light/dark/system) — Mandatory
+
+Every app **must** wrap its root in `<ThemeProvider>` from `@cloistr/ui` (outermost, around auth/query providers). This is the single theming mechanism; do not hand-roll dark-mode.
+
+- **Default = `system`.** With no stored user choice, `ThemeProvider` sets no `data-theme` and the app follows the OS via the tokens' `prefers-color-scheme` rule. A user choice (`light`/`dark`/`system`) persists in `localStorage['cloistr-theme']`.
+- **Tokens are theme-aware.** Light values apply on `:root[data-theme="light"]` (explicit) or system-light when unforced; dark is the `:root` default. Because all colors resolve to tokens (§5.5), theming is automatic — apps that use raw hex will *not* theme correctly (another reason raw hex is banned).
+- **The toggle is automatic.** `@cloistr/ui`'s `Header` renders `<ThemeToggle>` (provider-safe: renders nothing if no `ThemeProvider`). Apps using the shared Header get the light/dark/system control for free; do not add a bespoke toggle.
+- **Anti-patterns:** hand-rolled dark mode; a `.dark` class scheme that bypasses the tokens; per-app theme toggles.
+
+### 5.7 Favicon and App Icons — Canonical, Never the Scaffold Default
+
+Every app ships the **canonical Cloistr favicon**, never Vite's `vite.svg` default. The source of truth is `cloistr-assets/icons/final/` (`favicon.svg`, `favicon.ico`, `apple-touch-icon.png`), distributed by `cloistr-assets/scripts/distribute-icons.sh` (its `PROJECTS` list must include every current app) and referenced in each `index.html`:
+
+```html
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<link rel="alternate icon" href="/favicon.ico" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+```
+
+- **Anti-patterns:** shipping `vite.svg`; a per-app one-off icon; referencing an icon file that isn't distributed from `cloistr-assets`.
+- New apps get the canonical favicon via the scaffold; `cloistr-app-audit` flags any app still referencing `vite.svg` or missing `ThemeProvider`.
+
 ---
 
 ## 6. The `@cloistr/ui` Component Contract
