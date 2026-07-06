@@ -52,6 +52,7 @@
 
   /* Z-index layers */
   --cloistr-z-dropdown: 100;
+  --cloistr-z-app-switcher: 150;
   --cloistr-z-modal: 200;
   --cloistr-z-toast: 300;
 }

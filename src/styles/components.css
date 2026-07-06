@@ -345,7 +345,151 @@
   border-top: 1px solid var(--cloistr-border);
 }
 
-/* Service menu */
+/* ============================================
+   App Switcher (Google-style grid panel)
+   ============================================ */
+
+/* Trigger: 9-dot icon button, no text */
+.cloistr-apps-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--cloistr-radius-md);
+  cursor: pointer;
+  color: var(--cloistr-text-muted);
+  transition: background var(--cloistr-transition-fast), color var(--cloistr-transition-fast);
+  flex-shrink: 0;
+}
+
+.cloistr-apps-trigger:hover {
+  background: var(--cloistr-bg-hover);
+  color: var(--cloistr-text);
+}
+
+.cloistr-apps-trigger[aria-expanded="true"] {
+  background: var(--cloistr-bg-hover);
+  color: var(--cloistr-primary-light);
+}
+
+/*
+ * Panel: position:fixed so it escapes any ancestor overflow:hidden (sidebars,
+ * scrollable regions). Top/right are set inline from the trigger's bounding rect.
+ * z-index: --cloistr-z-app-switcher (150) — above content/sidebars, below modals.
+ */
+.cloistr-apps-panel {
+  background: var(--cloistr-bg-elevated);
+  border: 1px solid var(--cloistr-border);
+  border-radius: var(--cloistr-radius-lg);
+  box-shadow: var(--cloistr-shadow-lg);
+  width: 15rem;
+  overflow: hidden;
+}
+
+/* 3-column service grid */
+.cloistr-apps-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--cloistr-space-xs);
+  padding: var(--cloistr-space-md);
+}
+
+.cloistr-apps-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--cloistr-space-xs);
+  padding: var(--cloistr-space-sm);
+  border-radius: var(--cloistr-radius-md);
+  text-decoration: none;
+  color: var(--cloistr-text);
+  transition: background var(--cloistr-transition-fast);
+  min-height: 4.5rem;
+}
+
+.cloistr-apps-tile:hover {
+  background: var(--cloistr-bg-hover);
+}
+
+.cloistr-apps-tile--active {
+  background: var(--cloistr-bg-hover);
+  color: var(--cloistr-primary-light);
+}
+
+.cloistr-apps-tile-icon {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.cloistr-apps-tile-name {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  text-align: center;
+  color: var(--cloistr-text-muted);
+  line-height: 1.2;
+  word-break: break-word;
+}
+
+.cloistr-apps-tile--active .cloistr-apps-tile-name {
+  color: var(--cloistr-primary-light);
+}
+
+/* Appearance section */
+.cloistr-apps-appearance {
+  border-top: 1px solid var(--cloistr-border);
+  padding: var(--cloistr-space-sm) var(--cloistr-space-md);
+}
+
+.cloistr-apps-appearance-label {
+  margin: 0 0 var(--cloistr-space-xs) 0;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--cloistr-text-dim);
+}
+
+.cloistr-apps-theme-options {
+  display: flex;
+  gap: var(--cloistr-space-xs);
+}
+
+.cloistr-apps-theme-btn {
+  flex: 1;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  padding: var(--cloistr-space-xs) var(--cloistr-space-xs);
+  background: var(--cloistr-bg);
+  border: 1px solid var(--cloistr-border);
+  border-radius: var(--cloistr-radius-md);
+  cursor: pointer;
+  color: var(--cloistr-text-muted);
+  font-size: 0.6875rem;
+  font-family: var(--cloistr-font-sans);
+  transition: all var(--cloistr-transition-fast);
+  line-height: 1.2;
+}
+
+.cloistr-apps-theme-btn:hover {
+  background: var(--cloistr-bg-hover);
+  color: var(--cloistr-text);
+  border-color: var(--cloistr-text-dim);
+}
+
+.cloistr-apps-theme-btn--active {
+  background: var(--cloistr-bg-hover);
+  border-color: var(--cloistr-primary-light);
+  color: var(--cloistr-primary-light);
+}
+
+/* Legacy aliases kept for backward compat (consumers referencing old class names) */
 .cloistr-service-menu {
   position: relative;
 }

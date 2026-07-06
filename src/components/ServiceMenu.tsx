@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { useThemeOptional, type ThemeMode } from './ThemeProvider.js';
 
 export interface Service {
   /** Service identifier */
@@ -43,8 +44,52 @@ export const defaultServices: Service[] = [
   { id: 'discover', name: 'Discover', url: 'https://discover.cloistr.xyz', icon: '🔍' },
 ];
 
+/** 3×3 grid-of-dots icon (classic Google-apps trigger) */
+function AppsGridIcon() {
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 20 20"
+      fill="currentColor"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <circle cx="3.5" cy="3.5" r="1.5" />
+      <circle cx="10" cy="3.5" r="1.5" />
+      <circle cx="16.5" cy="3.5" r="1.5" />
+      <circle cx="3.5" cy="10" r="1.5" />
+      <circle cx="10" cy="10" r="1.5" />
+      <circle cx="16.5" cy="10" r="1.5" />
+      <circle cx="3.5" cy="16.5" r="1.5" />
+      <circle cx="10" cy="16.5" r="1.5" />
+      <circle cx="16.5" cy="16.5" r="1.5" />
+    </svg>
+  );
+}
+
+const THEME_ICON: Record<ThemeMode, string> = {
+  light: '☀️',
+  dark: '🌙',
+  system: '🖥️',
+};
+
+const THEME_LABEL: Record<ThemeMode, string> = {
+  light: 'Light',
+  dark: 'Dark',
+  system: 'System',
+};
+
+const THEME_MODES: ThemeMode[] = ['light', 'dark', 'system'];
+
 /**
- * Service switcher dropdown menu
+ * Service switcher — Google-style app-grid panel.
+ *
+ * The trigger is a 9-dot icon (icon-only, no text label).
+ * The panel is rendered at position:fixed so it escapes any overflow:hidden
+ * ancestor (sidebars, scrollable regions) and floats above all app content.
+ * z-index uses var(--cloistr-z-app-switcher) which sits between dropdown(100)
+ * and modal(200).
  */
 export function ServiceMenu({
   services = defaultServices,
@@ -52,51 +97,144 @@ export function ServiceMenu({
   baseDomain: _baseDomain = 'cloistr.xyz',
 }: ServiceMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const [panelPos, setPanelPos] = useState<{ top: number; right: number } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const themeCtx = useThemeOptional();
 
-  // Close menu when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+  /** Recompute the panel position from the trigger's bounding rect. */
+  const computePos = useCallback(() => {
+    if (!triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    setPanelPos({
+      top: rect.bottom + 6,
+      right: window.innerWidth - rect.right,
+    });
   }, []);
 
-  const activeService = services.find(s => s.id === activeServiceId) || services[0];
+  const open = useCallback(() => {
+    computePos();
+    setIsOpen(true);
+  }, [computePos]);
+
+  const close = useCallback(() => setIsOpen(false), []);
+
+  const toggle = useCallback(() => {
+    if (isOpen) {
+      close();
+    } else {
+      open();
+    }
+  }, [isOpen, open, close]);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!isOpen) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (
+        triggerRef.current && triggerRef.current.contains(target)
+      ) return;
+      if (panelRef.current && panelRef.current.contains(target)) return;
+      close();
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [isOpen, close]);
+
+  // Close on Escape
+  useEffect(() => {
+    if (!isOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') close();
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [isOpen, close]);
+
+  // Reposition if the window resizes while open
+  useEffect(() => {
+    if (!isOpen) return;
+    const handler = () => computePos();
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, [isOpen, computePos]);
 
   return (
-    <div className="cloistr-service-menu" ref={menuRef}>
+    <>
       <button
-        className="cloistr-service-menu-trigger"
-        onClick={() => setIsOpen(!isOpen)}
+        ref={triggerRef}
+        type="button"
+        className="cloistr-apps-trigger"
+        onClick={toggle}
+        aria-label="Apps"
         aria-expanded={isOpen}
-        aria-haspopup="menu"
+        aria-haspopup="dialog"
+        title="Apps"
       >
-        <span className="cloistr-service-icon">{activeService?.icon || '📱'}</span>
-        <span className="cloistr-service-name">{activeService?.name || 'Services'}</span>
-        <span className="cloistr-service-chevron">{isOpen ? '▲' : '▼'}</span>
+        <AppsGridIcon />
       </button>
 
-      {isOpen && (
-        <div className="cloistr-service-menu-dropdown" role="menu">
-          {services.map(service => (
-            <a
-              key={service.id}
-              href={service.url}
-              className={`cloistr-service-menu-item ${service.id === activeServiceId ? 'active' : ''}`}
-              role="menuitem"
-              onClick={() => setIsOpen(false)}
-            >
-              <span className="cloistr-service-icon">{service.icon || '📱'}</span>
-              <span className="cloistr-service-name">{service.name}</span>
-            </a>
-          ))}
+      {isOpen && panelPos && (
+        <div
+          ref={panelRef}
+          className="cloistr-apps-panel"
+          role="dialog"
+          aria-label="App switcher"
+          style={{
+            position: 'fixed',
+            top: panelPos.top,
+            right: panelPos.right,
+            zIndex: 'var(--cloistr-z-app-switcher)' as unknown as number,
+          }}
+        >
+          {/* Service grid */}
+          <div className="cloistr-apps-grid">
+            {services.map((service) => {
+              const isActive = service.id === activeServiceId;
+              return (
+                <a
+                  key={service.id}
+                  href={service.url}
+                  className={`cloistr-apps-tile${isActive ? ' cloistr-apps-tile--active' : ''}`}
+                  title={service.name}
+                  onClick={close}
+                >
+                  <span className="cloistr-apps-tile-icon" aria-hidden="true">
+                    {service.icon || '📱'}
+                  </span>
+                  <span className="cloistr-apps-tile-name">{service.name}</span>
+                </a>
+              );
+            })}
+          </div>
+
+          {/* Appearance section — only rendered when ThemeProvider is mounted */}
+          {themeCtx && (
+            <div className="cloistr-apps-appearance">
+              <p className="cloistr-apps-appearance-label">Appearance</p>
+              <div className="cloistr-apps-theme-options" role="group" aria-label="Theme">
+                {THEME_MODES.map((mode) => {
+                  const active = themeCtx.theme === mode;
+                  return (
+                    <button
+                      key={mode}
+                      type="button"
+                      className={`cloistr-apps-theme-btn${active ? ' cloistr-apps-theme-btn--active' : ''}`}
+                      onClick={() => themeCtx.setTheme(mode)}
+                      aria-pressed={active}
+                      title={THEME_LABEL[mode]}
+                    >
+                      <span aria-hidden="true">{THEME_ICON[mode]}</span>
+                      <span>{THEME_LABEL[mode]}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       )}
-    </div>
+    </>
   );
 }

@@ -86,10 +86,10 @@ export function Header({
           <a href={logoHref} className="cloistr-header-logo">
             {logo || defaultLogo}
           </a>
-          <ServiceMenu services={defaultServices} activeServiceId={activeServiceId} />
         </div>
 
         <div className="cloistr-header-right">
+          <ServiceMenu services={defaultServices} activeServiceId={activeServiceId} />
           <ThemeToggle />
           {children}
           {isAuthed ? (
