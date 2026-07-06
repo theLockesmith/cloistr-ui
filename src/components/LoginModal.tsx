@@ -140,6 +140,18 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
     setNostrConnectUri(null);
     setCopied(false);
 
+    // Session mode (the signer's own admin console): "Login With Cloistr" can't
+    // do the normal nostrconnect flow — the signer IS the remote signer, so
+    // delegating to itself is circular. Instead authenticate with the local
+    // Cloistr identity (NIP-07); the signer bridges that pubkey to the account
+    // session. Keeps the button at parity with every other app with a coherent
+    // action here. (Login mechanics to be refined in the auth workstream.)
+    if (mode === 'session') {
+      await connectNip07();
+      if (!authState.error) onClose();
+      return;
+    }
+
     // 1. Probe for active session cookie
     let sessionKeyId: string | null = null;
     try {
@@ -477,15 +489,15 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
                 >
                   Use Bunker URL
                 </button>
-                {mode === 'connect' && (
-                  <button
-                    className="cloistr-btn cloistr-btn-outline"
-                    onClick={handleLoginWithCloistr}
-                    disabled={authState.isConnecting}
-                  >
-                    {authState.isConnecting ? 'Waiting for approval…' : 'Login With Cloistr'}
-                  </button>
-                )}
+                {/* Shown in every mode for cross-app UX parity. In session mode
+                    (signer) the handler routes to the local-identity path. */}
+                <button
+                  className="cloistr-btn cloistr-btn-outline"
+                  onClick={handleLoginWithCloistr}
+                  disabled={authState.isConnecting}
+                >
+                  {authState.isConnecting ? 'Waiting for approval…' : 'Login With Cloistr'}
+                </button>
                 <button
                   className="cloistr-btn cloistr-btn-secondary"
                   onClick={() => { setLocalError(null); setScreen('login'); }}
