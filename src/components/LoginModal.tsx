@@ -43,6 +43,27 @@ type Screen = 'method' | 'bunker' | 'login' | 'signup' | 'pending' | 'consent';
  * IMPORTANT: every fetch to the signer uses credentials:'include' so the
  * parent-domain .cloistr.xyz session cookie is both sent and received.
  */
+// ── WebAuthn base64url helpers (browser ArrayBuffer ⇄ base64url) ────────────
+function arrayBufferToBase64Url(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  bytes.forEach((b) => (binary += String.fromCharCode(b)));
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+function base64UrlToArrayBuffer(base64url: string): ArrayBuffer {
+  const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
+  const padding = '='.repeat((4 - (base64.length % 4)) % 4);
+  const binary = atob(base64 + padding);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
+}
+
+// Passkeys are available only where the WebAuthn API exists.
+const isPasskeyAvailable =
+  typeof window !== 'undefined' && typeof window.PublicKeyCredential !== 'undefined';
+
 export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloistr.xyz', mode = 'connect', onSession }: LoginModalProps) {
   const { connectNip07, connectNip46, connectViaNostrConnect, authState } = useNostrAuth();
   const { isNip07Available } = useAuthHelpers();
@@ -232,6 +253,82 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
       }
     });
     if (!authState.error) onClose();
+  };
+
+  // Passkey (WebAuthn) discoverable login. Authenticates the account, which
+  // sets the shared .cloistr.xyz cookie; the SSO tail (handleLoginWithCloistr)
+  // then resolves the signing key + auto-approves nostrconnect — identical to
+  // the password path, no key material handled client-side.
+  const handlePasskeyLogin = async () => {
+    setLocalError(null);
+    if (!isPasskeyAvailable) {
+      setLocalError('Passkeys are not supported in this browser');
+      return;
+    }
+    try {
+      const api = `${signerUrl}/api/v1`;
+      const beginRes = await fetch(`${api}/users/passkey/login/begin`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (!beginRes.ok) throw new Error('Could not start passkey login');
+      const { publicKey, session_id: sessionId } = (await beginRes.json()) as {
+        publicKey: PublicKeyCredentialRequestOptions & { challenge: string; allowCredentials?: Array<{ id: string }> };
+        session_id: string;
+      };
+
+      // Decode base64url fields the browser needs as ArrayBuffers.
+      const requestOptions: PublicKeyCredentialRequestOptions = {
+        ...publicKey,
+        challenge: base64UrlToArrayBuffer(publicKey.challenge as unknown as string),
+        allowCredentials: publicKey.allowCredentials?.map((c) => ({
+          ...(c as PublicKeyCredentialDescriptor),
+          id: base64UrlToArrayBuffer((c as unknown as { id: string }).id),
+        })),
+      };
+
+      const credential = (await navigator.credentials.get({
+        publicKey: requestOptions,
+        mediation: 'optional',
+      })) as PublicKeyCredential | null;
+      if (!credential) throw new Error('No passkey selected');
+
+      const resp = credential.response as AuthenticatorAssertionResponse;
+      const finishRes = await fetch(`${api}/users/passkey/login/finish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          session_id: sessionId,
+          id: credential.id,
+          rawId: arrayBufferToBase64Url(credential.rawId),
+          type: credential.type,
+          response: {
+            authenticatorData: arrayBufferToBase64Url(resp.authenticatorData),
+            clientDataJSON: arrayBufferToBase64Url(resp.clientDataJSON),
+            signature: arrayBufferToBase64Url(resp.signature),
+            userHandle: resp.userHandle ? arrayBufferToBase64Url(resp.userHandle) : null,
+          },
+        }),
+      });
+      if (!finishRes.ok) {
+        const b = await finishRes.json().catch(() => ({}));
+        throw new Error((b as { error?: string }).error ?? 'Passkey login failed');
+      }
+
+      // Cookie is set. In session mode the caller resolves auth itself; in
+      // connect mode reuse the SSO path to finish the nostrconnect handshake.
+      if (mode === 'session') {
+        onClose();
+        return;
+      }
+      await handleLoginWithCloistr();
+    } catch (err) {
+      // User cancelling the passkey prompt throws NotAllowedError — treat as a
+      // quiet no-op rather than a scary error.
+      if ((err as Error).name === 'NotAllowedError') return;
+      setLocalError((err as Error).message);
+    }
   };
 
   // Consent approval: re-POST to /nostrconnect/session with consent:true.
@@ -517,6 +614,15 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
               </button>
               {showAdvanced && (
                 <div className="cloistr-login-options cloistr-login-options-advanced">
+                  {isPasskeyAvailable && (
+                    <button
+                      className="cloistr-btn cloistr-btn-secondary"
+                      onClick={handlePasskeyLogin}
+                      disabled={authState.isConnecting}
+                    >
+                      Passkey
+                    </button>
+                  )}
                   {isNip07Available && (
                     <button
                       className="cloistr-btn cloistr-btn-secondary"
