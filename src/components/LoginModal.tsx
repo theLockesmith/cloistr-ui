@@ -1,4 +1,5 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import QRCode from 'qrcode';
 import { useNostrAuth, useAuthHelpers, isValidBunkerUrl } from '../auth/index.js';
 
 /** Data passed to onSession callback in session mode */
@@ -28,11 +29,11 @@ export interface LoginModalProps {
   onSession?: (data: SessionData) => void | Promise<void>;
 }
 
-type Screen = 'method' | 'bunker' | 'login' | 'signup' | 'pending' | 'consent';
+type Screen = 'method' | 'bunker' | 'login' | 'signup' | 'pending' | 'consent' | 'lightning';
 
 /**
- * Login modal with NIP-07, NIP-46, password login, and signup options.
- * Every sub-state (bunker, login, signup, pending, consent) has Back/Cancel
+ * Login modal with NIP-07, NIP-46, password login, Lightning login, and signup options.
+ * Every sub-state (bunker, login, signup, pending, consent, lightning) has Back/Cancel
  * to return to method selection.
  *
  * "Login With Cloistr" is SSO-aware: when an active signer session cookie
@@ -63,6 +64,30 @@ function base64UrlToArrayBuffer(base64url: string): ArrayBuffer {
 // Passkeys are available only where the WebAuthn API exists.
 const isPasskeyAvailable =
   typeof window !== 'undefined' && typeof window.PublicKeyCredential !== 'undefined';
+
+// ── Lightning QR canvas sub-component ────────────────────────────────────────
+// Renders the bech32 LNURL as a QR code into a <canvas> via qrcode.toCanvas.
+// Isolated so the useEffect has a clean, minimal scope.
+interface LightningQrProps {
+  lnurl: string;
+}
+
+function LightningQr({ lnurl }: LightningQrProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    if (!canvasRef.current) return;
+    QRCode.toCanvas(canvasRef.current, lnurl, {
+      width: 220,
+      margin: 2,
+      color: { dark: '#000000', light: '#ffffff' },
+    }).catch(() => {
+      // Silently ignore render errors; the text link fallback is always present.
+    });
+  }, [lnurl]);
+
+  return <canvas ref={canvasRef} className="cloistr-lightning-qr" />;
+}
 
 export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloistr.xyz', mode = 'connect', onSession }: LoginModalProps) {
   const { connectNip07, connectNip46, connectViaNostrConnect, authState } = useNostrAuth();
@@ -102,19 +127,42 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
   const [consentKeyId, setConsentKeyId] = useState<string | null>(null);
   const [consentBusy, setConsentBusy] = useState(false);
 
+  // Lightning login state
+  const [lightningLnurl, setLightningLnurl] = useState<string | null>(null);
+  const [lightningCopied, setLightningCopied] = useState(false);
+  const lightningPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   // Local error (form-level; distinct from authState.error which is auth-layer)
   const [localError, setLocalError] = useState<string | null>(null);
 
   // Ref to the active nostrconnect session so goBack() can abort it.
   const nostrConnectSessionRef = useRef<{ cancel(): void } | null>(null);
 
+  // ── Lightning poll cleanup on unmount ─────────────────────────────────────
+  useEffect(() => {
+    return () => {
+      if (lightningPollRef.current !== null) {
+        clearInterval(lightningPollRef.current);
+        lightningPollRef.current = null;
+      }
+    };
+  }, []);
+
   if (!isOpen) return null;
 
   // ── Navigation ────────────────────────────────────────────────────────────
 
+  const stopLightningPoll = () => {
+    if (lightningPollRef.current !== null) {
+      clearInterval(lightningPollRef.current);
+      lightningPollRef.current = null;
+    }
+  };
+
   const goBack = () => {
     nostrConnectSessionRef.current?.cancel();
     nostrConnectSessionRef.current = null;
+    stopLightningPoll();
     setScreen('method');
     setBunkerUrl('');
     setLf({ username: '', password: '' });
@@ -132,6 +180,8 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
     setConsentUri(null);
     setConsentKeyId(null);
     setConsentBusy(false);
+    setLightningLnurl(null);
+    setLightningCopied(false);
   };
 
   // ── Auth handlers ─────────────────────────────────────────────────────────
@@ -328,6 +378,83 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
       // quiet no-op rather than a scary error.
       if ((err as Error).name === 'NotAllowedError') return;
       setLocalError((err as Error).message);
+    }
+  };
+
+  // Lightning (LNURL-auth) login.
+  // 1. POST /users/lightning/challenge → get lnurl + session_id
+  // 2. Show QR + link for wallet to scan/open
+  // 3. Poll GET /users/lightning/status?session_id=<id> every 2s
+  //    - pending  → keep polling
+  //    - success  → cookie is set; run SSO tail (or onClose in session mode)
+  //    - expired  → stop, show inline error
+  const handleLightningStart = async () => {
+    setLocalError(null);
+    try {
+      const api = `${signerUrl}/api/v1`;
+      const challengeRes = await fetch(`${api}/users/lightning/challenge`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (!challengeRes.ok) {
+        const b = await challengeRes.json().catch(() => ({}));
+        throw new Error((b as { error?: string }).error ?? 'Could not start Lightning login');
+      }
+      const { lnurl, session_id: sessionId } = (await challengeRes.json()) as {
+        lnurl: string;
+        k1: string;
+        session_id: string;
+      };
+
+      setLightningLnurl(lnurl);
+      setLightningCopied(false);
+      setScreen('lightning');
+
+      // Start polling — captured sessionId is stable for this login attempt.
+      const capturedSessionId = sessionId;
+      const interval = setInterval(() => {
+        void (async () => {
+          try {
+            const statusRes = await fetch(
+              `${api}/users/lightning/status?session_id=${encodeURIComponent(capturedSessionId)}`,
+              { credentials: 'include' },
+            );
+            if (!statusRes.ok) {
+              // 400 = expired (or unknown error)
+              const b = await statusRes.json().catch(() => ({}));
+              const status = (b as { status?: string }).status;
+              stopLightningPoll();
+              setLocalError(status === 'expired' ? 'QR code expired — try again' : 'Lightning login failed');
+              return;
+            }
+            const body = (await statusRes.json()) as { success: boolean; status?: string; username?: string };
+            if (!body.success) return; // pending — keep polling
+
+            // success: cookie is set by the signer
+            stopLightningPoll();
+            if (mode === 'session') {
+              onClose();
+              return;
+            }
+            await handleLoginWithCloistr();
+          } catch {
+            // transient network error — keep polling
+          }
+        })();
+      }, 2000);
+
+      lightningPollRef.current = interval;
+    } catch (err) {
+      setLocalError((err as Error).message);
+    }
+  };
+
+  const copyLightningUri = () => {
+    if (lightningLnurl && typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(`lightning:${lightningLnurl}`).catch(() => {
+        // clipboard write rejected (non-secure context, permissions) — ignore
+      });
+      setLightningCopied(true);
     }
   };
 
@@ -556,6 +683,7 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
     signup: 'Create Account',
     pending: 'Connecting…',
     consent: 'Confirm Access',
+    lightning: 'Sign in with Lightning',
   };
 
   return (
@@ -638,6 +766,13 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
                     disabled={authState.isConnecting}
                   >
                     Bunker URL (NIP-46)
+                  </button>
+                  <button
+                    className="cloistr-btn cloistr-btn-secondary"
+                    onClick={handleLightningStart}
+                    disabled={authState.isConnecting}
+                  >
+                    Lightning
                   </button>
                 </div>
               )}
@@ -923,6 +1058,43 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
                   disabled={consentBusy}
                 >
                   {consentBusy ? 'Approving…' : 'Approve'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Lightning: QR + wallet link ───────────────────────────────── */}
+          {screen === 'lightning' && lightningLnurl && (
+            <div className="cloistr-lightning">
+              <div className="cloistr-lightning-qr-wrapper">
+                <LightningQr lnurl={lightningLnurl} />
+              </div>
+              <p className="cloistr-login-help" style={{ marginTop: '12px' }}>
+                Scan with a Lightning wallet that supports LNURL-auth,{' '}
+                or{' '}
+                <a
+                  href={`lightning:${lightningLnurl}`}
+                  className="cloistr-lightning-open"
+                >
+                  open in wallet
+                </a>
+                .
+              </p>
+              <div className="cloistr-form-actions" style={{ marginTop: '8px' }}>
+                <button
+                  type="button"
+                  className="cloistr-btn cloistr-btn-secondary"
+                  onClick={copyLightningUri}
+                >
+                  {lightningCopied ? 'Copied' : 'Copy'}
+                </button>
+              </div>
+              <p className="cloistr-login-help" style={{ marginTop: '12px' }}>
+                Waiting for your wallet&hellip;
+              </p>
+              <div className="cloistr-form-actions" style={{ marginTop: '4px' }}>
+                <button type="button" className="cloistr-btn cloistr-btn-secondary" onClick={goBack}>
+                  Back
                 </button>
               </div>
             </div>
