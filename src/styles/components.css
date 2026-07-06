@@ -206,6 +206,35 @@
   gap: var(--cloistr-space-sm);
 }
 
+/* Progressive-disclosure toggle for advanced login methods */
+.cloistr-login-more-toggle {
+  display: block;
+  width: 100%;
+  margin-top: var(--cloistr-space-md);
+  padding: var(--cloistr-space-xs) 0;
+  background: none;
+  border: none;
+  color: var(--cloistr-text-muted);
+  font-size: 0.875rem;
+  cursor: pointer;
+  text-align: center;
+}
+
+.cloistr-login-more-toggle:hover:not(:disabled) {
+  color: var(--cloistr-primary-light);
+}
+
+.cloistr-login-more-toggle:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.cloistr-login-options-advanced {
+  margin-top: var(--cloistr-space-sm);
+  padding-top: var(--cloistr-space-sm);
+  border-top: 1px solid var(--cloistr-border);
+}
+
 .cloistr-login-help {
   margin-top: var(--cloistr-space-md);
   font-size: 0.875rem;

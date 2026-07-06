@@ -49,6 +49,10 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
 
   // Navigation
   const [screen, setScreen] = useState<Screen>('method');
+  // Progressive disclosure: keep the method screen normie-simple (password +
+  // "Login With Cloistr"); advanced methods (extension, bunker, passkey,
+  // lightning) live behind an "Other login methods" toggle.
+  const [showAdvanced, setShowAdvanced] = useState(false);
   // true = "Login With Cloistr" manual fallback (no session; user pastes URI)
   const [pendingIsManual, setPendingIsManual] = useState(false);
 
@@ -100,6 +104,7 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
     setNostrConnectUri(null);
     setCopied(false);
     setLocalError(null);
+    setShowAdvanced(false);
     setPendingIsManual(false);
     setConsentAppName(null);
     setConsentAppId(null);
@@ -472,22 +477,14 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
           {/* ── Method selection ───────────────────────────────────────────── */}
           {screen === 'method' && (
             <>
+              {/* Primary methods — kept simple for newcomers. */}
               <div className="cloistr-login-options">
-                {isNip07Available && (
-                  <button
-                    className="cloistr-btn cloistr-btn-primary"
-                    onClick={handleNip07}
-                    disabled={authState.isConnecting}
-                  >
-                    {authState.isConnecting ? 'Connecting...' : 'Use Browser Extension'}
-                  </button>
-                )}
                 <button
-                  className="cloistr-btn cloistr-btn-secondary"
-                  onClick={() => { setLocalError(null); setScreen('bunker'); }}
+                  className="cloistr-btn cloistr-btn-primary"
+                  onClick={() => { setLocalError(null); setScreen('login'); }}
                   disabled={authState.isConnecting}
                 >
-                  Use Bunker URL
+                  Log In with Password
                 </button>
                 {/* Shown in every mode for cross-app UX parity. In session mode
                     (signer) the handler routes to the local-identity path. */}
@@ -499,13 +496,6 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
                   {authState.isConnecting ? 'Waiting for approval…' : 'Login With Cloistr'}
                 </button>
                 <button
-                  className="cloistr-btn cloistr-btn-secondary"
-                  onClick={() => { setLocalError(null); setScreen('login'); }}
-                  disabled={authState.isConnecting}
-                >
-                  Log In with Password
-                </button>
-                <button
                   className="cloistr-btn cloistr-btn-ghost"
                   onClick={() => { setLocalError(null); setScreen('signup'); }}
                   disabled={authState.isConnecting}
@@ -513,6 +503,39 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
                   New here? Create an account
                 </button>
               </div>
+
+              {/* Advanced methods — progressive disclosure so the default view
+                  stays uncluttered for non-technical users. */}
+              <button
+                type="button"
+                className="cloistr-login-more-toggle"
+                aria-expanded={showAdvanced}
+                onClick={() => { setLocalError(null); setShowAdvanced((v) => !v); }}
+                disabled={authState.isConnecting}
+              >
+                {showAdvanced ? 'Fewer options' : 'Other login methods'}
+              </button>
+              {showAdvanced && (
+                <div className="cloistr-login-options cloistr-login-options-advanced">
+                  {isNip07Available && (
+                    <button
+                      className="cloistr-btn cloistr-btn-secondary"
+                      onClick={handleNip07}
+                      disabled={authState.isConnecting}
+                    >
+                      {authState.isConnecting ? 'Connecting...' : 'Browser Extension (NIP-07)'}
+                    </button>
+                  )}
+                  <button
+                    className="cloistr-btn cloistr-btn-secondary"
+                    onClick={() => { setLocalError(null); setScreen('bunker'); }}
+                    disabled={authState.isConnecting}
+                  >
+                    Bunker URL (NIP-46)
+                  </button>
+                </div>
+              )}
+
               <p className="cloistr-login-help">
                 Don&apos;t have a Nostr identity?{' '}
                 <a href={signerUrl} target="_blank" rel="noopener noreferrer">
