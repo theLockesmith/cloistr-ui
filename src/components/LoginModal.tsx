@@ -216,15 +216,12 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
     setNostrConnectUri(null);
     setCopied(false);
 
-    // Session mode (the signer's own admin console): "Login With Cloistr" can't
-    // do the normal nostrconnect flow — the signer IS the remote signer, so
-    // delegating to itself is circular. Instead authenticate with the local
-    // Cloistr identity (NIP-07); the signer bridges that pubkey to the account
-    // session. Keeps the button at parity with every other app with a coherent
-    // action here. (Login mechanics to be refined in the auth workstream.)
+    // Session mode (the signer's own console): this helper is only reached as
+    // the post-cookie tail of passkey/lightning here. The credential already
+    // set the signer's .cloistr.xyz session, so just close — the signer's own
+    // auth resolves from the session. (Never fall back to a browser extension.)
     if (mode === 'session') {
-      await connectNip07();
-      if (!authState.error) onClose();
+      onClose();
       return;
     }
 
@@ -679,7 +676,7 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
   const titleMap: Record<Screen, string> = {
     method: 'Sign In',
     bunker: 'Bunker URL',
-    login: 'Log In',
+    login: 'Sign in with Cloistr',
     signup: 'Create Account',
     pending: 'Connecting…',
     consent: 'Confirm Access',
@@ -702,23 +699,18 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
           {/* ── Method selection ───────────────────────────────────────────── */}
           {screen === 'method' && (
             <>
-              {/* Primary methods — kept simple for newcomers. */}
+              {/* Primary method: "Sign in with Cloistr" IS username/password —
+                  the same Cloistr account everywhere. Extension / bunker /
+                  passkey / lightning are separate options under "Other login
+                  methods". (Same in session mode: the signer's own login is
+                  also un/pw via this button.) */}
               <div className="cloistr-login-options">
                 <button
                   className="cloistr-btn cloistr-btn-primary"
                   onClick={() => { setLocalError(null); setScreen('login'); }}
                   disabled={authState.isConnecting}
                 >
-                  Log In with Password
-                </button>
-                {/* Shown in every mode for cross-app UX parity. In session mode
-                    (signer) the handler routes to the local-identity path. */}
-                <button
-                  className="cloistr-btn cloistr-btn-outline"
-                  onClick={handleLoginWithCloistr}
-                  disabled={authState.isConnecting}
-                >
-                  {authState.isConnecting ? 'Waiting for approval…' : 'Login With Cloistr'}
+                  Sign in with Cloistr
                 </button>
                 <button
                   className="cloistr-btn cloistr-btn-ghost"
