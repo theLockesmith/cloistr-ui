@@ -5,7 +5,7 @@
  * Enables single sign-on across all *.cloistr.xyz services.
  */
 
-import { useEffect, useCallback, useRef, createContext, useContext, ReactNode } from 'react';
+import { useEffect, useState, useCallback, useRef, createContext, useContext, ReactNode } from 'react';
 import {
   AuthProvider,
   useNostrAuth,
@@ -49,6 +49,13 @@ interface SharedSessionContextValue {
   getSharedSession: () => SharedSession | null;
   /** Whether running on a cloistr.xyz domain */
   isCloistrDomain: boolean;
+  /**
+   * True while the on-load SSO restore is still in flight. Apps MUST wait for
+   * this to be false before deciding the user is logged out / redirecting to a
+   * login screen — otherwise they redirect before the silent .cloistr.xyz SSO
+   * completes, which reads as "no session persistence across pages".
+   */
+  isResolving: boolean;
 }
 
 const SharedSessionContext = createContext<SharedSessionContextValue | null>(null);
@@ -77,6 +84,8 @@ function SessionSyncManager({
   const { isAuthenticated } = useAuthHelpers();
   const autoConnectAttempted = useRef(false);
   const prevConnectedRef = useRef(authState.isConnected);
+  // True while the on-load SSO restore runs; apps gate their login redirect on it.
+  const [isResolving, setIsResolving] = useState(autoConnect !== false);
 
   /**
    * Sync successful auth to shared session cookies
@@ -196,42 +205,48 @@ function SessionSyncManager({
 
   const attemptAutoConnect = useCallback(async () => {
     if (autoConnectAttempted.current || isAuthenticated || authState.isConnecting) {
+      setIsResolving(false);
       return;
     }
     autoConnectAttempted.current = true;
 
-    // 1. SSO first: silent reconnect via the signer session.
     try {
-      if (await attemptSsoConnect()) {
-        onAutoConnectComplete?.(true);
+      // 1. SSO first: silent reconnect via the signer session.
+      try {
+        if (await attemptSsoConnect()) {
+          onAutoConnectComplete?.(true);
+          return;
+        }
+      } catch (error) {
+        console.warn('SSO bootstrap failed, falling back to local session:', error);
+      }
+
+      // 2. Legacy fallback: per-origin localStorage shared session.
+      const session = getSharedSession();
+      if (!session) {
+        onAutoConnectComplete?.(false);
         return;
       }
-    } catch (error) {
-      console.warn('SSO bootstrap failed, falling back to local session:', error);
-    }
 
-    // 2. Legacy fallback: per-origin localStorage shared session.
-    const session = getSharedSession();
-    if (!session) {
-      onAutoConnectComplete?.(false);
-      return;
-    }
-
-    try {
-      if (session.method === 'nip07' && isNip07Supported()) {
-        await connectNip07();
-        onAutoConnectComplete?.(true, session.pubkey);
-      } else if (session.method === 'nip46' && session.bunkerUrl) {
-        await connectNip46({ bunkerUrl: session.bunkerUrl });
-        onAutoConnectComplete?.(true, session.pubkey);
-      } else {
-        // Session exists but can't restore (e.g., NIP-07 extension not installed)
+      try {
+        if (session.method === 'nip07' && isNip07Supported()) {
+          await connectNip07();
+          onAutoConnectComplete?.(true, session.pubkey);
+        } else if (session.method === 'nip46' && session.bunkerUrl) {
+          await connectNip46({ bunkerUrl: session.bunkerUrl });
+          onAutoConnectComplete?.(true, session.pubkey);
+        } else {
+          // Session exists but can't restore (e.g., NIP-07 extension not installed)
+          onAutoConnectComplete?.(false);
+        }
+      } catch (error) {
+        console.warn('Failed to auto-connect from shared session:', error);
+        // Don't clear shared session - might work on another page
         onAutoConnectComplete?.(false);
       }
-    } catch (error) {
-      console.warn('Failed to auto-connect from shared session:', error);
-      // Don't clear shared session - might work on another page
-      onAutoConnectComplete?.(false);
+    } finally {
+      // Restore settled (success OR failure) — release the login gate.
+      setIsResolving(false);
     }
   }, [isAuthenticated, authState.isConnecting, attemptSsoConnect, connectNip07, connectNip46, onAutoConnectComplete]);
 
@@ -239,11 +254,19 @@ function SessionSyncManager({
    * Attempt auto-connect on mount
    */
   useEffect(() => {
-    if (autoConnect !== false) {
-      // Small delay to let the page settle
-      const timeout = setTimeout(attemptAutoConnect, 100);
-      return () => clearTimeout(timeout);
+    if (autoConnect === false) {
+      setIsResolving(false);
+      return;
     }
+    // Small delay to let the page settle.
+    const timeout = setTimeout(attemptAutoConnect, 100);
+    // Safety cap: never hold the login gate longer than 3s even if a restore
+    // (e.g. a nostrconnect round-trip) stalls — apps then proceed as logged-out.
+    const safety = setTimeout(() => setIsResolving(false), 3000);
+    return () => {
+      clearTimeout(timeout);
+      clearTimeout(safety);
+    };
   }, [autoConnect, attemptAutoConnect]);
 
   /**
@@ -253,11 +276,30 @@ function SessionSyncManager({
     hasSharedSession: hasSharedSession(),
     getSharedSession,
     isCloistrDomain: isCloistrDomain(),
+    isResolving,
   };
+
+  // Central login-race guard: while the silent SSO restore is still running on
+  // a cloistr.xyz origin (and we're not already authenticated), hold the app's
+  // first render so it can't redirect to /login before the session resolves.
+  // Bounded by the 3s safety cap above; a no-op off-cloistr or once resolved.
+  const gateRestore = isResolving && !isAuthenticated && isCloistrDomain();
 
   return (
     <SharedSessionContext.Provider value={sharedSessionValue}>
-      {children}
+      {gateRestore ? (
+        <div
+          aria-busy="true"
+          style={{
+            minHeight: '100vh',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        />
+      ) : (
+        children
+      )}
     </SharedSessionContext.Provider>
   );
 }
