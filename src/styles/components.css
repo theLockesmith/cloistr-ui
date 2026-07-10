@@ -63,12 +63,32 @@
 /* Inputs */
 .cloistr-input {
   width: 100%;
+  /* border-box so width:100% + padding + border stays INSIDE the modal.
+     Without this the field overflows its container by padding+border. */
+  box-sizing: border-box;
   padding: var(--cloistr-space-sm) var(--cloistr-space-md);
   background: var(--cloistr-bg);
   border: 1px solid var(--cloistr-border);
   border-radius: var(--cloistr-radius-md);
   color: var(--cloistr-text);
   transition: border-color var(--cloistr-transition-fast);
+}
+
+/* Username/password login form: clean vertical layout inside the modal. */
+.cloistr-login-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cloistr-space-sm);
+}
+
+.cloistr-login-form label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--cloistr-text-muted);
+}
+
+.cloistr-login-form .cloistr-form-actions {
+  margin-top: var(--cloistr-space-sm);
 }
 
 .cloistr-input:focus {
