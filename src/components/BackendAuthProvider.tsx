@@ -31,6 +31,7 @@ import {
   connectNip07,
   connectNip46,
   isNip07Supported,
+  useNostrAuth,
   type SignerInterface,
 } from '../auth/index.js';
 import {
@@ -58,6 +59,12 @@ export interface BackendAuthConfig {
   tokenInfoEndpoint?: string;
   /** Minutes before expiry to refresh token (default: 2) */
   refreshBeforeExpiryMinutes?: number;
+  /**
+   * Signer origin used for the cross-subdomain SSO probe (default:
+   * 'https://signer.cloistr.xyz'). Overridable so self-hosters on their own
+   * domain work with no code change — cloistr.xyz is only the default.
+   */
+  signerUrl?: string;
 }
 
 export interface BackendUser {
@@ -144,6 +151,12 @@ function BackendAuthInner({ children, config }: InnerProviderProps) {
   const [authError, setAuthError] = useState<string | null>(null);
 
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cross-subdomain SSO: the @cloistr/auth context (populated by the signer
+  // session probe below) exposes the live signer once nostrconnect connects.
+  const { signer: ssoSigner, connectViaNostrConnect } = useNostrAuth();
+  const ssoProbeAttempted = useRef(false);
+  const ssoBackendExchangeAttempted = useRef(false);
 
   // ==========================================
   // Utilities
@@ -491,6 +504,72 @@ function BackendAuthInner({ children, config }: InnerProviderProps) {
     initAuth();
   }, [validateToken, performBackendAuth]);
 
+  // Cross-subdomain SSO bootstrap: if there's a signer session (the parent
+  // `.cloistr.xyz` cookie), drive an auto-approved nostrconnect so the
+  // @cloistr/auth context gets a live signer — no extension prompt, no manual
+  // login. This is the piece BackendAuthProvider previously lacked (it only
+  // tried NIP-07), which is why signer-session users were funneled to /login.
+  useEffect(() => {
+    if (ssoProbeAttempted.current || !isCloistrDomain()) return;
+    ssoProbeAttempted.current = true;
+
+    const signerUrl = config.signerUrl;
+    (async () => {
+      let sessionKeyId: string | null = null;
+      try {
+        const keysRes = await fetch(`${signerUrl}/api/v1/keys`, { credentials: 'include' });
+        if (keysRes.ok) {
+          const body = await keysRes.json();
+          const keys = Array.isArray(body) ? body : (body?.keys ?? []);
+          if (keys.length) sessionKeyId = keys[0].id;
+        }
+      } catch {
+        return; // no session / network → fall back to manual login
+      }
+      if (!sessionKeyId) return;
+
+      const capturedKeyId = sessionKeyId;
+      try {
+        await connectViaNostrConnect(undefined, async (uri: string, ncSession: { cancel: () => void }) => {
+          try {
+            const sessionRes = await fetch(`${signerUrl}/api/v1/nostrconnect/session`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({ uri, key_id: capturedKeyId }),
+            });
+            if (!sessionRes.ok) {
+              ncSession.cancel();
+              return;
+            }
+            const body = await sessionRes.json();
+            if (body.consent_required || !body.success) {
+              // First-time consent needs the LoginModal; don't hang.
+              ncSession.cancel();
+            }
+          } catch {
+            ncSession.cancel();
+          }
+        });
+      } catch {
+        // connect failed → manual login remains available
+      }
+    })();
+  }, [config.signerUrl, connectViaNostrConnect]);
+
+  // Once the SSO probe (or any other path) yields a live signer, exchange it
+  // for the backend JWT — mirrors the tasks LoginScreen pattern. Runs for the
+  // silent SSO path, which never goes through the LoginModal's manual flow.
+  useEffect(() => {
+    if (ssoSigner && !token && !ssoBackendExchangeAttempted.current) {
+      ssoBackendExchangeAttempted.current = true;
+      performBackendAuth(ssoSigner).catch(() => {
+        // Allow a retry on a later signer change (e.g. manual re-attempt).
+        ssoBackendExchangeAttempted.current = false;
+      });
+    }
+  }, [ssoSigner, token, performBackendAuth]);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -551,6 +630,7 @@ const DEFAULT_CONFIG: Required<BackendAuthConfig> = {
   refreshEndpoint: '/auth/refresh',
   tokenInfoEndpoint: '/auth/token-info',
   refreshBeforeExpiryMinutes: 2,
+  signerUrl: 'https://signer.cloistr.xyz',
 };
 
 /**
