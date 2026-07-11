@@ -20,6 +20,7 @@ import {
   isCloistrDomain,
   type SharedSession,
 } from '../lib/session.js';
+import { Spinner } from './Spinner.js';
 
 export interface SharedAuthProviderProps {
   children: ReactNode;
@@ -288,15 +289,35 @@ function SessionSyncManager({
   return (
     <SharedSessionContext.Provider value={sharedSessionValue}>
       {gateRestore ? (
+        // Shared "signing you in" view shown while the silent SSO restore runs
+        // (bounded by the 3s cap). Gives every SharedAuthProvider app a single,
+        // consistent login-in-progress affordance instead of a blank flash or a
+        // raw nostrconnect modal. Themed via design tokens so it follows
+        // light/dark automatically.
         <div
           aria-busy="true"
+          role="status"
           style={{
             minHeight: '100vh',
             display: 'flex',
+            flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
+            gap: '1rem',
+            background: 'var(--cloistr-bg)',
           }}
-        />
+        >
+          <Spinner size="xl" label="Signing you in" />
+          <p
+            style={{
+              color: 'var(--cloistr-text-muted)',
+              fontSize: '0.95rem',
+              margin: 0,
+            }}
+          >
+            Signing you in…
+          </p>
+        </div>
       ) : (
         children
       )}
