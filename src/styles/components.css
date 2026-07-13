@@ -606,6 +606,16 @@
 .cloistr-apps-tile-icon {
   font-size: 1.5rem;
   line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.75rem;
+}
+
+.cloistr-apps-tile-icon svg {
+  width: 1.625rem;
+  height: 1.625rem;
+  display: block;
 }
 
 .cloistr-apps-tile-name {
