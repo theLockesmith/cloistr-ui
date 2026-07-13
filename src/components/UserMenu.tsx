@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, lazy, Suspense } from 'react';
 import { useNostrAuth } from '../auth/index.js';
+import { useSharedSessionMaybe } from './SharedAuthProvider.js';
 
 // Lazy load SettingsModal for zero overhead until user clicks
 const SettingsModal = lazy(() => import('./SettingsModal.js'));
@@ -45,6 +46,8 @@ export function UserMenu({
   onSignIn,
 }: UserMenuProps) {
   const { authState, disconnect, setActiveKey } = useNostrAuth();
+  const sharedSession = useSharedSessionMaybe();
+  const pin = sharedSession?.pin ?? null;
   const [isOpen, setIsOpen] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -120,29 +123,54 @@ export function UserMenu({
           {/* Accounts section: show when there are keys in the context (multi-identity) */}
           {authState.keys.length > 0 && (
             <div className="cloistr-user-menu-accounts">
-              <p className="cloistr-user-menu-section-label">Accounts</p>
+              <p className="cloistr-user-menu-section-label">
+                Accounts
+                {pin?.pinnedPubkey && (
+                  <span className="cloistr-user-menu-pin-badge" aria-label="This tab is pinned to a specific account">
+                    {' '}— Pinned to this tab
+                  </span>
+                )}
+              </p>
               {authState.keys.map((k) => {
                 const isActive = k.pubkey === authState.activePubkey;
+                const isPinned = pin?.pinnedPubkey === k.pubkey;
                 const displayName = k.name ?? `${k.pubkey.slice(0, 16)}…`;
                 return (
-                  <button
-                    key={k.pubkey}
-                    className={`cloistr-user-menu-account-item${isActive ? ' cloistr-user-menu-account-item--active' : ''}`}
-                    role="menuitemradio"
-                    aria-checked={isActive}
-                    disabled={authState.isSwitching}
-                    onClick={() => handleSwitchKey(k.pubkey)}
-                    title={k.pubkey}
-                  >
-                    <span className="cloistr-user-menu-account-name">{displayName}</span>
-                    {isActive && (
-                      <span className="cloistr-user-menu-account-check" aria-hidden="true">✓</span>
+                  <div key={k.pubkey} className="cloistr-user-menu-account-row">
+                    <button
+                      className={`cloistr-user-menu-account-item${isActive ? ' cloistr-user-menu-account-item--active' : ''}`}
+                      role="menuitemradio"
+                      aria-checked={isActive}
+                      disabled={authState.isSwitching}
+                      onClick={() => handleSwitchKey(k.pubkey)}
+                      title={k.pubkey}
+                    >
+                      <span className="cloistr-user-menu-account-name">{displayName}</span>
+                      {isActive && (
+                        <span className="cloistr-user-menu-account-check" aria-hidden="true">✓</span>
+                      )}
+                    </button>
+                    {pin && (
+                      <button
+                        className={`cloistr-user-menu-account-pin${isPinned ? ' cloistr-user-menu-account-pin--active' : ''}`}
+                        title={isPinned ? 'Clear tab pin' : 'Pin this account to this tab'}
+                        aria-label={isPinned ? 'Clear tab pin' : `Pin ${displayName} to this tab`}
+                        onClick={() => {
+                          if (isPinned) {
+                            pin.clearPin();
+                          } else {
+                            pin.setPinnedPubkey(k.pubkey);
+                          }
+                        }}
+                        disabled={authState.isSwitching}
+                      >
+                        {isPinned ? '📌' : '📍'}
+                      </button>
                     )}
-                  </button>
+                  </div>
                 );
               })}
-              {/* Show single-key accounts row even for one key for visual consistency
-                  when hasMultipleKeys is false but we still want the "Add account" item */}
+              {/* "Add account": open the sign-in flow to connect an additional identity */}
               <button
                 className="cloistr-user-menu-account-item cloistr-user-menu-account-add"
                 role="menuitem"

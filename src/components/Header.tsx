@@ -100,6 +100,11 @@ export function Header({
               method={auth?.method}
               onLogout={auth?.onLogout}
               signerUrl={signerUrl}
+              onSignIn={
+                externalAuth
+                  ? auth?.onSignIn
+                  : () => setShowLoginModal(true)
+              }
             />
           ) : externalAuth && !auth?.onSignIn ? (
             // Login screens for backend-auth apps pass auth={{ authenticated: false }}

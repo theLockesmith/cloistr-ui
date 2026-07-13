@@ -19,7 +19,7 @@ export type { SettingsModalProps } from './SettingsModal.js';
 export { ServiceMenu, defaultServices } from './ServiceMenu.js';
 export type { ServiceMenuProps, Service } from './ServiceMenu.js';
 
-export { SharedAuthProvider, useSharedSession } from './SharedAuthProvider.js';
+export { SharedAuthProvider, useSharedSession, useSharedSessionMaybe } from './SharedAuthProvider.js';
 export type { SharedAuthProviderProps } from './SharedAuthProvider.js';
 
 export { BackendAuthProvider, useBackendAuth } from './BackendAuthProvider.js';

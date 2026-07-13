@@ -9,7 +9,7 @@
  * can mint signers for non-active keys on demand.
  */
 
-import { useEffect, useState, useCallback, useRef, createContext, useContext, ReactNode } from 'react';
+import { useEffect, useState, useCallback, useRef, createContext, useContext, useMemo, ReactNode } from 'react';
 import {
   AuthProvider,
   useNostrAuth,
@@ -64,9 +64,23 @@ interface SharedSessionContextValue {
    * completes, which reads as "no session persistence across pages".
    */
   isResolving: boolean;
+  /**
+   * Per-tab pin utilities. The pin overrides the global active key for this tab
+   * only (stored in sessionStorage, not propagated via cookie).
+   */
+  pin: {
+    /** Currently pinned pubkey for this tab, or null */
+    pinnedPubkey: string | null;
+    /** Pin a pubkey to this tab and switch locally (no global cookie write) */
+    setPinnedPubkey: (pubkey: string) => void;
+    /** Clear the per-tab pin */
+    clearPin: () => void;
+  };
 }
 
 const SharedSessionContext = createContext<SharedSessionContextValue | null>(null);
+
+export { SharedSessionContext };
 
 /**
  * Hook to access shared session utilities
@@ -77,6 +91,14 @@ export function useSharedSession(): SharedSessionContextValue {
     throw new Error('useSharedSession must be used within SharedAuthProvider');
   }
   return context;
+}
+
+/**
+ * Hook to access shared session utilities without throwing.
+ * Returns null when used outside SharedAuthProvider (e.g. bare AuthProvider apps).
+ */
+export function useSharedSessionMaybe(): SharedSessionContextValue | null {
+  return useContext(SharedSessionContext);
 }
 
 /**
@@ -110,6 +132,39 @@ function SessionSyncInner({
   const prevConnectedRef = useRef(authState.isConnected);
   // True while the on-load SSO restore runs; apps gate their login redirect on it.
   const [isResolving, setIsResolving] = useState(autoConnect !== false);
+
+  /** sessionStorage key for per-tab pinned pubkey */
+  const PIN_KEY = 'cloistr:auth:pinnedPubkey';
+
+  /** React state for the pinned pubkey — drives re-renders in UserMenu */
+  const [pinnedPubkey, setPinnedPubkeyState] = useState<string | null>(() => {
+    try { return sessionStorage.getItem(PIN_KEY); } catch { return null; }
+  });
+
+  /** Read the current pin from sessionStorage. Returns null if not set or unavailable. */
+  const getPinnedPubkey = useCallback((): string | null => {
+    try {
+      return sessionStorage.getItem(PIN_KEY);
+    } catch {
+      return null;
+    }
+  }, []);
+
+  /** Pin a pubkey to this tab: writes sessionStorage, updates state, switches locally */
+  const setPinnedPubkeyFn = useCallback((pubkey: string) => {
+    try { sessionStorage.setItem(PIN_KEY, pubkey); } catch { /* noop */ }
+    setPinnedPubkeyState(pubkey);
+    void setActiveKey(pubkey);
+  }, [setActiveKey]);
+
+  /** Clear the per-tab pin */
+  const clearPinFn = useCallback(() => {
+    try { sessionStorage.removeItem(PIN_KEY); } catch { /* noop */ }
+    setPinnedPubkeyState(null);
+  }, []);
+
+  /** Whether this tab has a pin active */
+  const hasPinRef = useRef(false);
 
   /**
    * Mint a signer for a specific key_id + pubkey via the nostrconnect/session flow.
@@ -201,13 +256,15 @@ function SessionSyncInner({
   }, [authState.isConnected, authState.pubkey, authState.method]);
 
   /**
-   * Persist activePubkey to cookie whenever it changes so other tabs can follow
+   * Persist activePubkey to cookie whenever it changes so other tabs can follow.
+   * Skipped when this tab has a pin set — a pinned tab is local-only and must not
+   * override the global active key seen by other tabs.
    */
   useEffect(() => {
-    if (authState.activePubkey) {
+    if (authState.activePubkey && !getPinnedPubkey()) {
       setActivePubkeyCookie(authState.activePubkey);
     }
-  }, [authState.activePubkey]);
+  }, [authState.activePubkey, getPinnedPubkey]);
 
   /**
    * Cross-tab key-switch propagation.
@@ -215,9 +272,15 @@ function SessionSyncInner({
    * Poll the activePubkey cookie every 2s, and also on window focus + storage
    * events. When another tab calls setActiveKey(), the cookie changes; we call
    * setActiveKey here so this tab picks up the switch without a reload.
+   *
+   * Tabs with a per-tab pin (cloistr:auth:pinnedPubkey in sessionStorage) are
+   * intentionally exempt: the pin overrides the global cookie for this tab only.
    */
   useEffect(() => {
     const checkCookieSwitch = () => {
+      // Skip if this tab has a pin — the pin wins over the global cookie.
+      if (getPinnedPubkey()) return;
+
       const cookiePubkey = getActivePubkeyCookie();
       if (
         cookiePubkey &&
@@ -238,7 +301,32 @@ function SessionSyncInner({
       window.removeEventListener('focus', checkCookieSwitch);
       window.removeEventListener('storage', checkCookieSwitch);
     };
-  }, [authState.activePubkey, authState.isSwitching, setActiveKey]);
+  }, [authState.activePubkey, authState.isSwitching, setActiveKey, getPinnedPubkey]);
+
+  /**
+   * Per-tab pin: on first connect (keys populated), if a pinned pubkey exists in
+   * sessionStorage and is in the key list, switch to that key locally without
+   * writing the global cookie. Runs once via hasPinRef guard.
+   */
+  useEffect(() => {
+    if (hasPinRef.current) return;
+    if (!authState.isConnected || authState.keys.length === 0) return;
+
+    const pinned = getPinnedPubkey();
+    if (!pinned) return;
+
+    const inList = authState.keys.some((k) => k.pubkey === pinned);
+    if (!inList) {
+      // Pinned key no longer available — clear stale pin
+      try { sessionStorage.removeItem(PIN_KEY); } catch { /* noop */ }
+      return;
+    }
+
+    hasPinRef.current = true;
+    if (pinned !== authState.activePubkey) {
+      void setActiveKey(pinned);
+    }
+  }, [authState.isConnected, authState.keys, authState.activePubkey, getPinnedPubkey, setActiveKey]);
 
   /**
    * Clear shared session on disconnect
@@ -362,11 +450,18 @@ function SessionSyncInner({
   /**
    * Context value for shared session utilities
    */
+  const pinValue = useMemo(() => ({
+    pinnedPubkey,
+    setPinnedPubkey: setPinnedPubkeyFn,
+    clearPin: clearPinFn,
+  }), [pinnedPubkey, setPinnedPubkeyFn, clearPinFn]);
+
   const sharedSessionValue: SharedSessionContextValue = {
     hasSharedSession: hasSharedSession(),
     getSharedSession,
     isCloistrDomain: isCloistrDomain(),
     isResolving,
+    pin: pinValue,
   };
 
   // Central login-race guard: while the silent SSO restore is still running on

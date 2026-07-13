@@ -473,6 +473,60 @@
   cursor: default;
 }
 
+/* Account row wrapper — holds the account button + optional pin button */
+.cloistr-user-menu-account-row {
+  display: flex;
+  align-items: center;
+}
+
+.cloistr-user-menu-account-row .cloistr-user-menu-account-item {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Per-tab pin button (pin icon to the right of each account row) */
+.cloistr-user-menu-account-pin {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: var(--cloistr-radius-md);
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: var(--cloistr-text-dim);
+  opacity: 0.5;
+  transition: opacity var(--cloistr-transition-fast), background var(--cloistr-transition-fast);
+}
+
+.cloistr-user-menu-account-pin:hover:not(:disabled) {
+  opacity: 1;
+  background: var(--cloistr-bg-hover);
+}
+
+.cloistr-user-menu-account-pin:disabled {
+  cursor: not-allowed;
+}
+
+/* Active pin: full opacity, tinted */
+.cloistr-user-menu-account-pin--active {
+  opacity: 1;
+  color: var(--cloistr-primary-light);
+}
+
+/* "Pinned to this tab" badge in the Accounts section label */
+.cloistr-user-menu-pin-badge {
+  font-weight: 400;
+  color: var(--cloistr-primary-light);
+  font-size: 0.625rem;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
 /* ============================================
    App Switcher (Google-style grid panel)
    ============================================ */
