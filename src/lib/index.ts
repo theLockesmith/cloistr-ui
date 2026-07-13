@@ -5,6 +5,9 @@ export {
   createServicesForDomain,
 } from './services.js';
 
+export { useKeySwitcherBootstrap } from './keySwitcher.js';
+export type { KeySwitcherBootstrap, SignerKey, PinState } from './keySwitcher.js';
+
 export {
   saveSharedSession,
   getSharedSession,

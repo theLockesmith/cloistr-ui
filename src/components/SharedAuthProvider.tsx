@@ -7,26 +7,28 @@
  * Multi-identity: on load, fetches all keys from the signer, calls setKeys(),
  * mints a signer for the active key, and passes resolveSigner so setActiveKey()
  * can mint signers for non-active keys on demand.
+ *
+ * Key-switcher bootstrap and cookie/cross-tab logic lives in
+ * src/lib/keySwitcher.ts (useKeySwitcherBootstrap) and is shared with
+ * BackendAuthProvider so JWT apps get identical multi-identity behaviour.
  */
 
-import { useEffect, useState, useCallback, useRef, createContext, useContext, useMemo, ReactNode } from 'react';
+import { useEffect, useCallback, useRef, createContext, useContext, useMemo, ReactNode } from 'react';
 import {
   AuthProvider,
   useNostrAuth,
   useAuthHelpers,
 } from '../auth/index.js';
 import type { KeyIdentity, SignerInterface } from '../auth/index.js';
-import type { NostrConnectSession } from '@cloistr/auth';
 import {
   getSharedSession,
   saveSharedSession,
   clearSharedSession,
   hasSharedSession,
   isCloistrDomain,
-  getActivePubkeyCookie,
-  setActivePubkeyCookie,
   type SharedSession,
 } from '../lib/session.js';
+import { useKeySwitcherBootstrap } from '../lib/keySwitcher.js';
 import { Spinner } from './Spinner.js';
 
 export interface SharedAuthProviderProps {
@@ -102,15 +104,6 @@ export function useSharedSessionMaybe(): SharedSessionContextValue | null {
 }
 
 /**
- * Signer-API key shape returned by GET /api/v1/keys
- */
-interface SignerKey {
-  id: string;
-  pubkey?: string;
-  name?: string;
-}
-
-/**
  * Inner component that handles session sync after auth context is available.
  *
  * It also wires up the resolveSigner function into the ref that SharedAuthProvider
@@ -126,107 +119,20 @@ function SessionSyncInner({
 }: SharedAuthProviderProps & {
   resolveSignerRef: React.MutableRefObject<((identity: KeyIdentity) => Promise<SignerInterface>) | undefined>;
 }) {
-  const { authState, connectViaNostrConnect, setKeys, registerKey, setActiveKey } = useNostrAuth();
+  const { authState } = useNostrAuth();
   const { isAuthenticated } = useAuthHelpers();
   const autoConnectAttempted = useRef(false);
   const prevConnectedRef = useRef(authState.isConnected);
-  // True while the on-load SSO restore runs; apps gate their login redirect on it.
-  const [isResolving, setIsResolving] = useState(autoConnect !== false);
 
-  /** sessionStorage key for per-tab pinned pubkey */
-  const PIN_KEY = 'cloistr:auth:pinnedPubkey';
-
-  /** React state for the pinned pubkey — drives re-renders in UserMenu */
-  const [pinnedPubkey, setPinnedPubkeyState] = useState<string | null>(() => {
-    try { return sessionStorage.getItem(PIN_KEY); } catch { return null; }
-  });
-
-  /** Read the current pin from sessionStorage. Returns null if not set or unavailable. */
-  const getPinnedPubkey = useCallback((): string | null => {
-    try {
-      return sessionStorage.getItem(PIN_KEY);
-    } catch {
-      return null;
-    }
-  }, []);
-
-  /** Pin a pubkey to this tab: writes sessionStorage, updates state, switches locally */
-  const setPinnedPubkeyFn = useCallback((pubkey: string) => {
-    try { sessionStorage.setItem(PIN_KEY, pubkey); } catch { /* noop */ }
-    setPinnedPubkeyState(pubkey);
-    void setActiveKey(pubkey);
-  }, [setActiveKey]);
-
-  /** Clear the per-tab pin */
-  const clearPinFn = useCallback(() => {
-    try { sessionStorage.removeItem(PIN_KEY); } catch { /* noop */ }
-    setPinnedPubkeyState(null);
-  }, []);
-
-  /** Whether this tab has a pin active */
-  const hasPinRef = useRef(false);
-
-  /**
-   * Mint a signer for a specific key_id + pubkey via the nostrconnect/session flow.
-   *
-   * The onUri callback POSTs the nostrconnect URI to the signer's session endpoint
-   * for auto-approval. If the signer returns consent_required or an error, we cancel
-   * so the returned promise rejects (callers handle that gracefully).
-   *
-   * Used by:
-   *   - attemptSsoConnect (bootstrap): mint the active key's signer on load.
-   *   - resolveSigner (on-demand): mint a signer for any key on setActiveKey().
-   */
-  const mintSignerForKey = useCallback(async (
-    keyId: string,
-    _pubkey: string,
-  ): Promise<SignerInterface> => {
-    return new Promise<SignerInterface>((resolve, reject) => {
-      let ncSessionRef: NostrConnectSession | null = null;
-
-      const onUri = async (uri: string, ncSession: NostrConnectSession) => {
-        ncSessionRef = ncSession;
-        try {
-          const sessionRes = await fetch(`${signerUrl}/api/v1/nostrconnect/session`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ uri, key_id: keyId }),
-          });
-          if (!sessionRes.ok) {
-            ncSession.cancel();
-            reject(new Error(`nostrconnect/session failed: ${sessionRes.status}`));
-            return;
-          }
-          const body = (await sessionRes.json()) as { success?: boolean; consent_required?: boolean };
-          if (body.consent_required || !body.success) {
-            ncSession.cancel();
-            reject(new Error('consent_required or not success'));
-            return;
-          }
-          // success: let approved resolve and hand the ready signer to caller
-          ncSession.approved.then(resolve).catch(reject);
-        } catch (err) {
-          ncSession.cancel();
-          reject(err);
-        }
-      };
-
-      connectViaNostrConnect(undefined, onUri).catch((err) => {
-        // Only reject if onUri was never called (connectViaNostrConnect itself threw)
-        if (!ncSessionRef) reject(err);
-      });
-    });
-  }, [signerUrl, connectViaNostrConnect]);
-
-  /**
-   * resolveSigner: injected into AuthProvider so setActiveKey() can mint a signer
-   * for any known key on demand (when no cached signer exists for that pubkey).
-   */
-  const resolveSigner = useCallback(async (identity: KeyIdentity): Promise<SignerInterface> => {
-    const keyId = identity.pubkey.slice(0, 16);
-    return mintSignerForKey(keyId, identity.pubkey);
-  }, [mintSignerForKey]);
+  // All multi-identity / cookie / cross-tab logic lives here.
+  const {
+    mintSignerForKey: _mintSignerForKey,
+    resolveSigner,
+    bootstrapKeys,
+    isResolving,
+    setIsResolving,
+    pin,
+  } = useKeySwitcherBootstrap(signerUrl, autoConnect !== false);
 
   // Keep the ref up-to-date so AuthProvider always calls the current closure
   useEffect(() => {
@@ -256,79 +162,6 @@ function SessionSyncInner({
   }, [authState.isConnected, authState.pubkey, authState.method]);
 
   /**
-   * Persist activePubkey to cookie whenever it changes so other tabs can follow.
-   * Skipped when this tab has a pin set — a pinned tab is local-only and must not
-   * override the global active key seen by other tabs.
-   */
-  useEffect(() => {
-    if (authState.activePubkey && !getPinnedPubkey()) {
-      setActivePubkeyCookie(authState.activePubkey);
-    }
-  }, [authState.activePubkey, getPinnedPubkey]);
-
-  /**
-   * Cross-tab key-switch propagation.
-   *
-   * Poll the activePubkey cookie every 2s, and also on window focus + storage
-   * events. When another tab calls setActiveKey(), the cookie changes; we call
-   * setActiveKey here so this tab picks up the switch without a reload.
-   *
-   * Tabs with a per-tab pin (cloistr:auth:pinnedPubkey in sessionStorage) are
-   * intentionally exempt: the pin overrides the global cookie for this tab only.
-   */
-  useEffect(() => {
-    const checkCookieSwitch = () => {
-      // Skip if this tab has a pin — the pin wins over the global cookie.
-      if (getPinnedPubkey()) return;
-
-      const cookiePubkey = getActivePubkeyCookie();
-      if (
-        cookiePubkey &&
-        authState.activePubkey &&
-        cookiePubkey !== authState.activePubkey &&
-        !authState.isSwitching
-      ) {
-        void setActiveKey(cookiePubkey);
-      }
-    };
-
-    const interval = setInterval(checkCookieSwitch, 2000);
-    window.addEventListener('focus', checkCookieSwitch);
-    window.addEventListener('storage', checkCookieSwitch);
-
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener('focus', checkCookieSwitch);
-      window.removeEventListener('storage', checkCookieSwitch);
-    };
-  }, [authState.activePubkey, authState.isSwitching, setActiveKey, getPinnedPubkey]);
-
-  /**
-   * Per-tab pin: on first connect (keys populated), if a pinned pubkey exists in
-   * sessionStorage and is in the key list, switch to that key locally without
-   * writing the global cookie. Runs once via hasPinRef guard.
-   */
-  useEffect(() => {
-    if (hasPinRef.current) return;
-    if (!authState.isConnected || authState.keys.length === 0) return;
-
-    const pinned = getPinnedPubkey();
-    if (!pinned) return;
-
-    const inList = authState.keys.some((k) => k.pubkey === pinned);
-    if (!inList) {
-      // Pinned key no longer available — clear stale pin
-      try { sessionStorage.removeItem(PIN_KEY); } catch { /* noop */ }
-      return;
-    }
-
-    hasPinRef.current = true;
-    if (pinned !== authState.activePubkey) {
-      void setActiveKey(pinned);
-    }
-  }, [authState.isConnected, authState.keys, authState.activePubkey, getPinnedPubkey, setActiveKey]);
-
-  /**
    * Clear shared session on disconnect
    */
   useEffect(() => {
@@ -339,65 +172,11 @@ function SessionSyncInner({
 
   /**
    * SSO bootstrap: resolve the shared `.cloistr.xyz` signer session on load.
-   *
-   * Multi-identity flow:
-   *  1. GET /api/v1/keys → full list. Map all to KeyIdentity; call setKeys(all).
-   *  2. Determine active key: activePubkey cookie (if still in list) else keys[0].
-   *  3. Mint signer for active key via mintSignerForKey; registerKey(active, signer, {activate:true}).
-   *  4. Return true (connected). Return false on 401/empty/mint failure → legacy path.
-   *
-   * Only runs on cloistr.xyz origins (parent-domain cookie required).
+   * Delegates the key-list + signer mint to bootstrapKeys() from the shared hook.
    */
   const attemptSsoConnect = useCallback(async (): Promise<boolean> => {
-    if (!isCloistrDomain()) return false;
-
-    let signerKeys: SignerKey[] = [];
-    try {
-      const keysRes = await fetch(`${signerUrl}/api/v1/keys`, { credentials: 'include' });
-      if (keysRes.ok) {
-        const keysBody = (await keysRes.json()) as unknown;
-        signerKeys = Array.isArray(keysBody)
-          ? (keysBody as SignerKey[])
-          : (((keysBody as { keys?: SignerKey[] }).keys) ?? []);
-      }
-      // 401 / empty → no signer session
-    } catch {
-      return false;
-    }
-
-    if (signerKeys.length === 0) return false;
-
-    // Build the full KeyIdentity list and populate the context
-    const allIdentities: KeyIdentity[] = signerKeys.map((k) => ({
-      pubkey: k.pubkey ?? k.id,
-      method: 'nip46' as const,
-      name: k.name,
-    }));
-    setKeys(allIdentities);
-
-    // Determine active key: cookie value if present in list, else first key
-    const cookieActive = getActivePubkeyCookie();
-    const activeIdentity =
-      (cookieActive != null && allIdentities.find((i) => i.pubkey === cookieActive)) ||
-      allIdentities[0];
-
-    if (!activeIdentity) return false;
-
-    // Resolve the signer-API key_id (the signer's internal identifier for the key)
-    const activeSignerKey = signerKeys.find(
-      (k) => (k.pubkey ?? k.id) === activeIdentity.pubkey,
-    );
-    const keyId = activeSignerKey?.id ?? activeIdentity.pubkey.slice(0, 16);
-
-    try {
-      const signer = await mintSignerForKey(keyId, activeIdentity.pubkey);
-      registerKey(activeIdentity, signer, { activate: true });
-      return true;
-    } catch {
-      // consent_required or network failure; fall back
-      return false;
-    }
-  }, [signerUrl, setKeys, registerKey, mintSignerForKey]);
+    return bootstrapKeys();
+  }, [bootstrapKeys]);
 
   const attemptAutoConnect = useCallback(async () => {
     if (autoConnectAttempted.current || isAuthenticated || authState.isConnecting) {
@@ -426,7 +205,7 @@ function SessionSyncInner({
       // Restore settled (success OR failure) — release the login gate.
       setIsResolving(false);
     }
-  }, [isAuthenticated, authState.isConnecting, attemptSsoConnect, onAutoConnectComplete]);
+  }, [isAuthenticated, authState.isConnecting, attemptSsoConnect, onAutoConnectComplete, setIsResolving]);
 
   /**
    * Attempt auto-connect on mount
@@ -445,16 +224,16 @@ function SessionSyncInner({
       clearTimeout(timeout);
       clearTimeout(safety);
     };
-  }, [autoConnect, attemptAutoConnect]);
+  }, [autoConnect, attemptAutoConnect, setIsResolving]);
 
   /**
    * Context value for shared session utilities
    */
   const pinValue = useMemo(() => ({
-    pinnedPubkey,
-    setPinnedPubkey: setPinnedPubkeyFn,
-    clearPin: clearPinFn,
-  }), [pinnedPubkey, setPinnedPubkeyFn, clearPinFn]);
+    pinnedPubkey: pin.pinnedPubkey,
+    setPinnedPubkey: pin.setPinnedPubkey,
+    clearPin: pin.clearPin,
+  }), [pin.pinnedPubkey, pin.setPinnedPubkey, pin.clearPin]);
 
   const sharedSessionValue: SharedSessionContextValue = {
     hasSharedSession: hasSharedSession(),

@@ -2,7 +2,7 @@
  * BackendAuthProvider - Authentication for apps with backend JWT tokens
  *
  * Combines Nostr authentication (NIP-07/NIP-46) with JWT token management.
- * Use this for apps that have a backend requiring JWT auth (like cloistr-tasks).
+ * Use this for apps that have a backend requiring JWT auth (like cloistr-mail).
  *
  * Flow:
  * 1. User authenticates with Nostr (via collab-common)
@@ -11,7 +11,18 @@
  * 4. JWT used for all subsequent API calls
  * 5. Token auto-refreshed before expiry
  *
- * Also integrates with SharedAuthProvider for cross-subdomain SSO cookies.
+ * Multi-identity / key-switcher:
+ * BackendAuthProvider now runs the same useKeySwitcherBootstrap hook that
+ * SharedAuthProvider uses.  On load it fetches /api/v1/keys, populates
+ * authState.keys, mints the active signer and propagates active-key changes
+ * via the .cloistr.xyz cookie so the Header key-switcher works identically
+ * in JWT apps.  Switching a key triggers the app's own re-auth (e.g. mail's
+ * useActiveKeyReScope) via the normal setActiveKey path.
+ *
+ * SharedSessionContext / pin:
+ * BackendAuthProvider also provides a SharedSessionContext so UserMenu's pin
+ * UI works without modification.  The context value mirrors the one emitted
+ * by SharedAuthProvider (same shape).
  */
 
 import {
@@ -33,6 +44,7 @@ import {
   isNip07Supported,
   useNostrAuth,
   type SignerInterface,
+  type KeyIdentity,
 } from '../auth/index.js';
 import {
   saveSharedSession,
@@ -40,7 +52,11 @@ import {
   getSharedSession,
   isCloistrDomain,
   renewSession,
+  hasSharedSession,
 } from '../lib/session.js';
+import type { SharedSession } from '../lib/session.js';
+import { useKeySwitcherBootstrap } from '../lib/keySwitcher.js';
+import { SharedSessionContext } from './SharedAuthProvider.js';
 
 // ============================================
 // Types
@@ -60,9 +76,9 @@ export interface BackendAuthConfig {
   /** Minutes before expiry to refresh token (default: 2) */
   refreshBeforeExpiryMinutes?: number;
   /**
-   * Signer origin used for the cross-subdomain SSO probe (default:
-   * 'https://signer.cloistr.xyz'). Overridable so self-hosters on their own
-   * domain work with no code change — cloistr.xyz is only the default.
+   * Signer origin used for the cross-subdomain SSO probe and key-list bootstrap
+   * (default: 'https://signer.cloistr.xyz'). Overridable so self-hosters on
+   * their own domain work with no code change.
    */
   signerUrl?: string;
 }
@@ -138,9 +154,17 @@ export interface BackendAuthProviderProps {
 interface InnerProviderProps {
   children: ReactNode;
   config: Required<BackendAuthConfig>;
+  /**
+   * Ref owned by the outer BackendAuthProvider.  The inner component writes
+   * the keySwitcher-derived resolveSigner into it so the outer AuthProvider
+   * receives an up-to-date closure without re-mounting.
+   */
+  resolveSignerRef: React.MutableRefObject<
+    ((identity: KeyIdentity) => Promise<SignerInterface>) | undefined
+  >;
 }
 
-function BackendAuthInner({ children, config }: InnerProviderProps) {
+function BackendAuthInner({ children, config, resolveSignerRef }: InnerProviderProps) {
 
   // State
   const [user, setUser] = useState<BackendUser | null>(null);
@@ -152,11 +176,23 @@ function BackendAuthInner({ children, config }: InnerProviderProps) {
 
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Cross-subdomain SSO: the @cloistr/auth context (populated by the signer
-  // session probe below) exposes the live signer once nostrconnect connects.
-  const { signer: ssoSigner, connectViaNostrConnect } = useNostrAuth();
-  const ssoProbeAttempted = useRef(false);
+  // Cross-subdomain SSO: the @cloistr/auth context exposes the live signer
+  // once the key-list bootstrap (via bootstrapKeys below) mints it.
+  const { signer: ssoSigner } = useNostrAuth();
   const ssoBackendExchangeAttempted = useRef(false);
+
+  // Key-switcher bootstrap: populates authState.keys, mints the active signer,
+  // syncs the active-key cookie, and handles cross-tab propagation — identical
+  // to the behaviour in SharedAuthProvider.  This is the SINGLE source of truth
+  // for that logic (shared with SharedAuthProvider via keySwitcher.ts).
+  const { resolveSigner, bootstrapKeys, pin, isResolving, setIsResolving } =
+    useKeySwitcherBootstrap(config.signerUrl, true);
+
+  // Wire the keySwitcher resolveSigner into the outer AuthProvider ref so that
+  // setActiveKey() can mint signers for non-active keys on demand.
+  useEffect(() => {
+    resolveSignerRef.current = resolveSigner;
+  }, [resolveSignerRef, resolveSigner]);
 
   // ==========================================
   // Utilities
@@ -335,7 +371,9 @@ function BackendAuthInner({ children, config }: InnerProviderProps) {
 
       if (!verifyResponse.ok) {
         const error = await verifyResponse.json().catch(() => ({}));
-        throw new Error(error.error || 'Authentication failed');
+        throw new Error(
+          (error as { error?: string }).error || 'Authentication failed',
+        );
       }
 
       const authResult = await verifyResponse.json();
@@ -435,7 +473,7 @@ function BackendAuthInner({ children, config }: InnerProviderProps) {
       if (response.status === 401 || response.status === 403) {
         const errorData = await response.json().catch(() => ({}));
 
-        if (errorData.action === 'login_required') {
+        if ((errorData as { action?: string }).action === 'login_required') {
           clearAuth();
           throw new Error('Session expired. Please log in again.');
         }
@@ -463,7 +501,11 @@ function BackendAuthInner({ children, config }: InnerProviderProps) {
 
       if (!response.ok) {
         const error = await response.json().catch(() => ({ error: 'Request failed' }));
-        throw new Error(error.error || error.message || 'Request failed');
+        throw new Error(
+          (error as { error?: string; message?: string }).error ||
+            (error as { message?: string }).message ||
+            'Request failed',
+        );
       }
 
       return response.json();
@@ -504,71 +546,39 @@ function BackendAuthInner({ children, config }: InnerProviderProps) {
     initAuth();
   }, [validateToken, performBackendAuth]);
 
-  // Cross-subdomain SSO bootstrap: if there's a signer session (the parent
-  // `.cloistr.xyz` cookie), drive an auto-approved nostrconnect so the
-  // @cloistr/auth context gets a live signer — no extension prompt, no manual
-  // login. This is the piece BackendAuthProvider previously lacked (it only
-  // tried NIP-07), which is why signer-session users were funneled to /login.
+  // Key-list bootstrap: call the shared bootstrapKeys() so authState.keys is
+  // populated and the cookie + cross-tab sync is live.  On success the ssoSigner
+  // effect below picks up the minted signer and drives the backend JWT exchange.
+  const bootstrapAttempted = useRef(false);
   useEffect(() => {
-    if (ssoProbeAttempted.current || !isCloistrDomain()) return;
-    ssoProbeAttempted.current = true;
+    if (bootstrapAttempted.current || !isCloistrDomain()) {
+      setIsResolving(false);
+      return;
+    }
+    bootstrapAttempted.current = true;
 
-    const signerUrl = config.signerUrl;
-    (async () => {
-      let sessionKeyId: string | null = null;
-      try {
-        const keysRes = await fetch(`${signerUrl}/api/v1/keys`, { credentials: 'include' });
-        if (keysRes.ok) {
-          const body = await keysRes.json();
-          const keys = Array.isArray(body) ? body : (body?.keys ?? []);
-          if (keys.length) sessionKeyId = keys[0].id;
-        }
-      } catch {
-        return; // no session / network → fall back to manual login
-      }
-      if (!sessionKeyId) return;
+    bootstrapKeys().then((ok) => {
+      if (!ok) setIsResolving(false);
+      // If ok, the ssoSigner effect fires once the signer is registered and
+      // releases isResolving after the backend exchange.
+    }).catch(() => {
+      setIsResolving(false);
+    });
+  }, [bootstrapKeys, setIsResolving]);
 
-      const capturedKeyId = sessionKeyId;
-      try {
-        await connectViaNostrConnect(undefined, async (uri: string, ncSession: { cancel: () => void }) => {
-          try {
-            const sessionRes = await fetch(`${signerUrl}/api/v1/nostrconnect/session`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              credentials: 'include',
-              body: JSON.stringify({ uri, key_id: capturedKeyId }),
-            });
-            if (!sessionRes.ok) {
-              ncSession.cancel();
-              return;
-            }
-            const body = await sessionRes.json();
-            if (body.consent_required || !body.success) {
-              // First-time consent needs the LoginModal; don't hang.
-              ncSession.cancel();
-            }
-          } catch {
-            ncSession.cancel();
-          }
-        });
-      } catch {
-        // connect failed → manual login remains available
-      }
-    })();
-  }, [config.signerUrl, connectViaNostrConnect]);
-
-  // Once the SSO probe (or any other path) yields a live signer, exchange it
-  // for the backend JWT — mirrors the tasks LoginScreen pattern. Runs for the
-  // silent SSO path, which never goes through the LoginModal's manual flow.
+  // Once bootstrap (or any other path) yields a live signer, exchange it for
+  // the backend JWT.
   useEffect(() => {
     if (ssoSigner && !token && !ssoBackendExchangeAttempted.current) {
       ssoBackendExchangeAttempted.current = true;
       performBackendAuth(ssoSigner).catch(() => {
         // Allow a retry on a later signer change (e.g. manual re-attempt).
         ssoBackendExchangeAttempted.current = false;
+      }).finally(() => {
+        setIsResolving(false);
       });
     }
-  }, [ssoSigner, token, performBackendAuth]);
+  }, [ssoSigner, token, performBackendAuth, setIsResolving]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -578,6 +588,24 @@ function BackendAuthInner({ children, config }: InnerProviderProps) {
       }
     };
   }, []);
+
+  // ==========================================
+  // SharedSessionContext value (mirrors SharedAuthProvider)
+  // ==========================================
+
+  const pinValue = useMemo(() => ({
+    pinnedPubkey: pin.pinnedPubkey,
+    setPinnedPubkey: pin.setPinnedPubkey,
+    clearPin: pin.clearPin,
+  }), [pin.pinnedPubkey, pin.setPinnedPubkey, pin.clearPin]);
+
+  const sharedSessionValue = useMemo(() => ({
+    hasSharedSession: hasSharedSession(),
+    getSharedSession: (): SharedSession | null => getSharedSession(),
+    isCloistrDomain: isCloistrDomain(),
+    isResolving,
+    pin: pinValue,
+  }), [isResolving, pinValue]);
 
   // ==========================================
   // Context Value
@@ -616,7 +644,11 @@ function BackendAuthInner({ children, config }: InnerProviderProps) {
     ]
   );
 
-  return <BackendAuthContext.Provider value={value}>{children}</BackendAuthContext.Provider>;
+  return (
+    <SharedSessionContext.Provider value={sharedSessionValue}>
+      <BackendAuthContext.Provider value={value}>{children}</BackendAuthContext.Provider>
+    </SharedSessionContext.Provider>
+  );
 }
 
 // ============================================
@@ -668,9 +700,31 @@ export function BackendAuthProvider({ children, config }: BackendAuthProviderPro
     ...config,
   };
 
+  // Hoist resolveSigner into a stable ref so AuthProvider receives a stable
+  // function reference while BackendAuthInner's closure stays up-to-date.
+  // Mirrors the identical pattern in SharedAuthProvider.
+  const resolveSignerRef = useRef<
+    ((identity: KeyIdentity) => Promise<SignerInterface>) | undefined
+  >(undefined);
+
+  const resolveSignerProp = useCallback(
+    (identity: KeyIdentity): Promise<SignerInterface> => {
+      if (!resolveSignerRef.current) {
+        return Promise.reject(new Error('resolveSigner not yet initialized'));
+      }
+      return resolveSignerRef.current(identity);
+    },
+    [],
+  );
+
   return (
-    <AuthProvider autoRestore={false}>
-      <BackendAuthInner config={mergedConfig}>{children}</BackendAuthInner>
+    <AuthProvider autoRestore={false} resolveSigner={resolveSignerProp}>
+      <BackendAuthInner
+        config={mergedConfig}
+        resolveSignerRef={resolveSignerRef}
+      >
+        {children}
+      </BackendAuthInner>
     </AuthProvider>
   );
 }
