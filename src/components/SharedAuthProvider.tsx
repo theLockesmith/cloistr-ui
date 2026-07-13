@@ -18,6 +18,7 @@ import {
   AuthProvider,
   useNostrAuth,
   useAuthHelpers,
+  isNip07Supported,
 } from '../auth/index.js';
 import type { KeyIdentity, SignerInterface } from '../auth/index.js';
 import {
@@ -119,7 +120,7 @@ function SessionSyncInner({
 }: SharedAuthProviderProps & {
   resolveSignerRef: React.MutableRefObject<((identity: KeyIdentity) => Promise<SignerInterface>) | undefined>;
 }) {
-  const { authState } = useNostrAuth();
+  const { authState, connectNip07: connectNip07Ctx } = useNostrAuth();
   const { isAuthenticated } = useAuthHelpers();
   const autoConnectAttempted = useRef(false);
   const prevConnectedRef = useRef(authState.isConnected);
@@ -186,7 +187,28 @@ function SessionSyncInner({
     autoConnectAttempted.current = true;
 
     try {
-      // 1. SSO first: silent reconnect via the signer session.
+      // Check the shared session cookie first to detect NIP-07 sessions before
+      // attempting any signer-session bootstrap.
+      const session = getSharedSession();
+
+      // NIP-07: the extension holds the key non-custodially. The signer has no
+      // session cookie for this key, so bootstrapKeys() would just return false.
+      // Instead, call connectNip07() directly which re-prompts the extension and
+      // registers the pubkey into authState. We do NOT try to run a signer fetch.
+      if (session?.method === 'nip07' && isNip07Supported()) {
+        try {
+          await connectNip07Ctx();
+          onAutoConnectComplete?.(true);
+          return;
+        } catch (error) {
+          console.warn('NIP-07 session restore failed:', error);
+          // Fall through — let app show its login UI.
+          onAutoConnectComplete?.(false, session.pubkey);
+          return;
+        }
+      }
+
+      // 1. SSO first: silent reconnect via the signer session (NIP-46 / nostrconnect).
       try {
         if (await attemptSsoConnect()) {
           onAutoConnectComplete?.(true);
@@ -199,13 +221,12 @@ function SessionSyncInner({
       // 2. Legacy fallback: check if a shared session cookie exists. On non-cloistr
       // origins (dev/test) we can't drive the nostrconnect flow, so we report
       // not-connected and let the app show its login UI.
-      const session = getSharedSession();
       onAutoConnectComplete?.(false, session?.pubkey);
     } finally {
       // Restore settled (success OR failure) — release the login gate.
       setIsResolving(false);
     }
-  }, [isAuthenticated, authState.isConnecting, attemptSsoConnect, onAutoConnectComplete, setIsResolving]);
+  }, [isAuthenticated, authState.isConnecting, connectNip07Ctx, attemptSsoConnect, onAutoConnectComplete, setIsResolving]);
 
   /**
    * Attempt auto-connect on mount

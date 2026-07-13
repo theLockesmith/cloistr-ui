@@ -178,7 +178,7 @@ function BackendAuthInner({ children, config, resolveSignerRef }: InnerProviderP
 
   // Cross-subdomain SSO: the @cloistr/auth context exposes the live signer
   // once the key-list bootstrap (via bootstrapKeys below) mints it.
-  const { signer: ssoSigner } = useNostrAuth();
+  const { signer: ssoSigner, connectNip07: connectNip07Ctx } = useNostrAuth();
   const ssoBackendExchangeAttempted = useRef(false);
 
   // Key-switcher bootstrap: populates authState.keys, mints the active signer,
@@ -402,6 +402,10 @@ function BackendAuthInner({ children, config, resolveSignerRef }: InnerProviderP
     setAuthError(null);
 
     try {
+      // Use the auth context's connectNip07 so the pubkey lands in authState
+      // (keys list, activePubkey, cookie sync) — required for the key-switcher.
+      // Then perform the backend JWT exchange directly with a fresh extension signer.
+      await connectNip07Ctx();
       const signer = await connectNip07();
       await performBackendAuth(signer);
     } catch (error) {
@@ -411,7 +415,7 @@ function BackendAuthInner({ children, config, resolveSignerRef }: InnerProviderP
     } finally {
       setLoading(false);
     }
-  }, [performBackendAuth]);
+  }, [connectNip07Ctx, performBackendAuth]);
 
   const loginWithBunker = useCallback(
     async (bunkerUrl: string) => {
@@ -527,16 +531,24 @@ function BackendAuthInner({ children, config, resolveSignerRef }: InnerProviderP
       // Try to validate existing token
       const hasValidToken = await validateToken();
 
-      // If no valid token but shared session exists, try auto-login
+      // If no valid token but shared session exists, try auto-login.
+      // For NIP-07: use the auth context's connectNip07 so the pubkey lands in
+      // authState.keys / activePubkey (not just used as a raw signer). The
+      // ssoSigner effect below then picks it up and drives the JWT exchange.
+      // Do NOT call bootstrapKeys() for NIP-07 sessions — the signer holds the
+      // key non-custodially; there is no signer-session cookie to authenticate.
       if (!hasValidToken && isCloistrDomain()) {
         const session = getSharedSession();
         if (session?.method === 'nip07' && isNip07Supported()) {
           try {
-            const signer = await connectNip07();
-            await performBackendAuth(signer);
+            await connectNip07Ctx();
+            // ssoSigner effect fires next render and exchanges for JWT.
           } catch {
             // Auto-login failed, user needs to login manually
           }
+          // NIP-07 restore attempt done — skip signer-session bootstrap below.
+          setLoading(false);
+          return;
         }
       }
 
@@ -544,14 +556,19 @@ function BackendAuthInner({ children, config, resolveSignerRef }: InnerProviderP
     };
 
     initAuth();
-  }, [validateToken, performBackendAuth]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [validateToken]);
 
   // Key-list bootstrap: call the shared bootstrapKeys() so authState.keys is
   // populated and the cookie + cross-tab sync is live.  On success the ssoSigner
   // effect below picks up the minted signer and drives the backend JWT exchange.
+  // SKIP for NIP-07 sessions: the extension is non-custodial; there is no
+  // signer-session cookie, and bootstrapKeys() would just return false anyway.
+  // The initAuth effect above handles NIP-07 restore via connectNip07Ctx().
   const bootstrapAttempted = useRef(false);
   useEffect(() => {
-    if (bootstrapAttempted.current || !isCloistrDomain()) {
+    const session = getSharedSession();
+    if (bootstrapAttempted.current || !isCloistrDomain() || session?.method === 'nip07') {
       setIsResolving(false);
       return;
     }

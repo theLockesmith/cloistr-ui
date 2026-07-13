@@ -23,7 +23,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useNostrAuth } from '../auth/index.js';
+import { useNostrAuth, connectNip07, isNip07Supported } from '../auth/index.js';
 import type { KeyIdentity, SignerInterface } from '../auth/index.js';
 import type { NostrConnectSession } from '@cloistr/auth';
 import {
@@ -171,6 +171,15 @@ export function useKeySwitcherBootstrap(
 
   const resolveSigner = useCallback(
     async (identity: KeyIdentity): Promise<SignerInterface> => {
+      // NIP-07: the extension IS the signer — we do NOT control the key and
+      // CANNOT mint a nostrconnect signer for it. Return a fresh extension signer
+      // (window.nostr) so setActiveKey(nip07Pubkey) works without crashing.
+      if (identity.method === 'nip07') {
+        if (!isNip07Supported()) {
+          throw new Error('NIP-07 browser extension not available');
+        }
+        return connectNip07();
+      }
       const keyId = identity.pubkey.slice(0, 16);
       return mintSignerForKey(keyId, identity.pubkey);
     },
@@ -180,6 +189,12 @@ export function useKeySwitcherBootstrap(
   // --- bootstrapKeys ---
 
   const bootstrapKeys = useCallback(async (): Promise<boolean> => {
+    // bootstrapKeys drives the signer's nostrconnect/session mint path.
+    // It MUST NOT run for NIP-07 sessions: the extension holds the key
+    // non-custodially and there is no signer-session cookie to authenticate
+    // with. The caller (SharedAuthProvider / BackendAuthProvider) is
+    // responsible for detecting the NIP-07 case and calling connectNip07()
+    // instead (see attemptAutoConnect / initAuth in those providers).
     if (!isCloistrDomain()) return false;
 
     let signerKeys: SignerKey[] = [];
