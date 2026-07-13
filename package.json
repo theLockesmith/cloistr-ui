@@ -40,7 +40,7 @@
     "react-dom": "^18.0.0 || ^19.0.0"
   },
   "devDependencies": {
-    "@cloistr/auth": "^0.2.0",
+    "@cloistr/auth": "^0.2.1",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "typescript": "^5.4.0"
