@@ -17,6 +17,8 @@ export {
   setSessionTTL,
   SESSION_TTL_OPTIONS,
   SESSION_TTL_LABELS,
+  getActivePubkeyCookie,
+  setActivePubkeyCookie,
 } from './session.js';
 export type { SharedSession, SessionTTL } from './session.js';
 // Note: AuthMethod type is exported from './auth' (via collab-common)

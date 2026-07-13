@@ -19,6 +19,12 @@ export interface UserMenuProps {
   onLogout?: () => void;
   /** Signer base URL for central logout (defaults to signer.cloistr.xyz) */
   signerUrl?: string;
+  /**
+   * Callback invoked when the user clicks "Add account". If not provided, the
+   * Add account item is rendered as a disabled stub (full external-add is a later
+   * phase).
+   */
+  onSignIn?: () => void;
 }
 
 /**
@@ -36,8 +42,9 @@ export function UserMenu({
   method,
   onLogout,
   signerUrl = 'https://signer.cloistr.xyz',
+  onSignIn,
 }: UserMenuProps) {
-  const { authState, disconnect } = useNostrAuth();
+  const { authState, disconnect, setActiveKey } = useNostrAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -73,11 +80,17 @@ export function UserMenu({
     (onLogout ?? disconnect)();
   };
 
+  const handleSwitchKey = (targetPubkey: string) => {
+    if (targetPubkey === authState.activePubkey || authState.isSwitching) return;
+    void setActiveKey(targetPubkey);
+  };
+
   if (!effectivePubkey) {
     return null;
   }
 
   const shortPubkey = `${effectivePubkey.slice(0, 8)}...${effectivePubkey.slice(-4)}`;
+  const hasMultipleKeys = authState.keys.length > 1;
 
   return (
     <div className="cloistr-user-menu" ref={menuRef}>
@@ -104,7 +117,49 @@ export function UserMenu({
             </span>
           </div>
 
-          <div className="cloistr-user-menu-items">
+          {/* Accounts section: show when there are keys in the context (multi-identity) */}
+          {authState.keys.length > 0 && (
+            <div className="cloistr-user-menu-accounts">
+              <p className="cloistr-user-menu-section-label">Accounts</p>
+              {authState.keys.map((k) => {
+                const isActive = k.pubkey === authState.activePubkey;
+                const displayName = k.name ?? `${k.pubkey.slice(0, 16)}…`;
+                return (
+                  <button
+                    key={k.pubkey}
+                    className={`cloistr-user-menu-account-item${isActive ? ' cloistr-user-menu-account-item--active' : ''}`}
+                    role="menuitemradio"
+                    aria-checked={isActive}
+                    disabled={authState.isSwitching}
+                    onClick={() => handleSwitchKey(k.pubkey)}
+                    title={k.pubkey}
+                  >
+                    <span className="cloistr-user-menu-account-name">{displayName}</span>
+                    {isActive && (
+                      <span className="cloistr-user-menu-account-check" aria-hidden="true">✓</span>
+                    )}
+                  </button>
+                );
+              })}
+              {/* Show single-key accounts row even for one key for visual consistency
+                  when hasMultipleKeys is false but we still want the "Add account" item */}
+              <button
+                className="cloistr-user-menu-account-item cloistr-user-menu-account-add"
+                role="menuitem"
+                disabled={!onSignIn}
+                onClick={() => {
+                  if (onSignIn) {
+                    setIsOpen(false);
+                    onSignIn();
+                  }
+                }}
+              >
+                {onSignIn ? '+ Add account' : 'Add account (soon)'}
+              </button>
+            </div>
+          )}
+
+          <div className={`cloistr-user-menu-items${hasMultipleKeys ? ' cloistr-user-menu-items--with-accounts' : ''}`}>
             <a href={profileUrl} className="cloistr-user-menu-item" role="menuitem">
               Profile
             </a>

@@ -340,7 +340,7 @@
   position: absolute;
   top: calc(100% + var(--cloistr-space-xs));
   right: 0;
-  min-width: 200px;
+  min-width: 240px;
   background: var(--cloistr-bg-elevated);
   border: 1px solid var(--cloistr-border);
   border-radius: var(--cloistr-radius-md);
@@ -392,6 +392,85 @@
 .cloistr-user-menu-logout {
   color: var(--cloistr-error);
   border-top: 1px solid var(--cloistr-border);
+}
+
+/* ============================================
+   User Menu — Accounts (key-switcher) section
+   ============================================ */
+
+.cloistr-user-menu-accounts {
+  border-bottom: 1px solid var(--cloistr-border);
+  padding: var(--cloistr-space-xs) 0;
+}
+
+.cloistr-user-menu-section-label {
+  margin: 0;
+  padding: var(--cloistr-space-xs) var(--cloistr-space-md);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--cloistr-text-dim);
+}
+
+.cloistr-user-menu-account-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cloistr-space-sm);
+  width: 100%;
+  padding: var(--cloistr-space-xs) var(--cloistr-space-md);
+  background: none;
+  border: none;
+  text-align: left;
+  font-size: 0.875rem;
+  font-family: var(--cloistr-font-sans);
+  color: var(--cloistr-text);
+  cursor: pointer;
+  transition: background var(--cloistr-transition-fast);
+}
+
+.cloistr-user-menu-account-item:hover:not(:disabled) {
+  background: var(--cloistr-bg-hover);
+}
+
+.cloistr-user-menu-account-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cloistr-user-menu-account-item--active {
+  color: var(--cloistr-primary-light);
+  font-weight: 500;
+}
+
+.cloistr-user-menu-account-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--cloistr-font-mono);
+  font-size: 0.8125rem;
+}
+
+.cloistr-user-menu-account-check {
+  flex-shrink: 0;
+  color: var(--cloistr-primary-light);
+  font-size: 0.875rem;
+}
+
+.cloistr-user-menu-account-add {
+  color: var(--cloistr-text-muted);
+  font-family: var(--cloistr-font-sans);
+}
+
+.cloistr-user-menu-account-add:not(:disabled):hover {
+  color: var(--cloistr-primary-light);
+}
+
+.cloistr-user-menu-account-add:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 /* ============================================

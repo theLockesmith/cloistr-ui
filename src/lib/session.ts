@@ -42,6 +42,7 @@ const COOKIE_KEYS = {
   PUBKEY: 'cloistr_auth_pubkey',
   BUNKER: 'cloistr_auth_bunker',
   TTL: 'cloistr_session_ttl',
+  ACTIVE_PUBKEY: 'cloistr_auth_active_pubkey',
 } as const;
 
 /**
@@ -209,6 +210,23 @@ export function hasSharedSession(): boolean {
 }
 
 /**
+ * Get the active pubkey cookie (cross-tab key-switcher coordination).
+ * Returns null if the cookie is absent.
+ */
+export function getActivePubkeyCookie(): string | null {
+  return getCookie(COOKIE_KEYS.ACTIVE_PUBKEY);
+}
+
+/**
+ * Persist the active pubkey to a cross-domain cookie so all *.cloistr.xyz tabs
+ * reflect the switch without a page reload. Same domain/attrs as the rest of the
+ * session cookies.
+ */
+export function setActivePubkeyCookie(pubkey: string): void {
+  setCookie(COOKIE_KEYS.ACTIVE_PUBKEY, pubkey);
+}
+
+/**
  * Clear shared session cookies
  */
 export function clearSharedSession(): void {
@@ -216,6 +234,7 @@ export function clearSharedSession(): void {
   deleteCookie(COOKIE_KEYS.PUBKEY);
   deleteCookie(COOKIE_KEYS.BUNKER);
   deleteCookie(COOKIE_KEYS.TTL);
+  deleteCookie(COOKIE_KEYS.ACTIVE_PUBKEY);
 }
 
 /**

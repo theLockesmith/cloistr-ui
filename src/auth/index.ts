@@ -32,4 +32,5 @@ export type {
   AuthContextValue,
   Nip46Config,
   AuthProviderProps,
+  KeyIdentity,
 } from '@cloistr/auth';

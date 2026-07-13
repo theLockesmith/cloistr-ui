@@ -3,6 +3,10 @@
  *
  * Wraps the collab-common AuthProvider and adds cross-domain session sync.
  * Enables single sign-on across all *.cloistr.xyz services.
+ *
+ * Multi-identity: on load, fetches all keys from the signer, calls setKeys(),
+ * mints a signer for the active key, and passes resolveSigner so setActiveKey()
+ * can mint signers for non-active keys on demand.
  */
 
 import { useEffect, useState, useCallback, useRef, createContext, useContext, ReactNode } from 'react';
@@ -10,14 +14,17 @@ import {
   AuthProvider,
   useNostrAuth,
   useAuthHelpers,
-  isNip07Supported,
 } from '../auth/index.js';
+import type { KeyIdentity, SignerInterface } from '../auth/index.js';
+import type { NostrConnectSession } from '@cloistr/auth';
 import {
   getSharedSession,
   saveSharedSession,
   clearSharedSession,
   hasSharedSession,
   isCloistrDomain,
+  getActivePubkeyCookie,
+  setActivePubkeyCookie,
   type SharedSession,
 } from '../lib/session.js';
 import { Spinner } from './Spinner.js';
@@ -73,15 +80,31 @@ export function useSharedSession(): SharedSessionContextValue {
 }
 
 /**
- * Inner component that handles session sync after auth context is available
+ * Signer-API key shape returned by GET /api/v1/keys
  */
-function SessionSyncManager({
+interface SignerKey {
+  id: string;
+  pubkey?: string;
+  name?: string;
+}
+
+/**
+ * Inner component that handles session sync after auth context is available.
+ *
+ * It also wires up the resolveSigner function into the ref that SharedAuthProvider
+ * passes to AuthProvider — this is the only way to give AuthProvider a signer-mint
+ * callback that itself needs the auth context (connectViaNostrConnect).
+ */
+function SessionSyncInner({
   children,
   autoConnect,
   onAutoConnectComplete,
   signerUrl = 'https://signer.cloistr.xyz',
-}: SharedAuthProviderProps) {
-  const { authState, connectNip07, connectNip46, connectViaNostrConnect } = useNostrAuth();
+  resolveSignerRef,
+}: SharedAuthProviderProps & {
+  resolveSignerRef: React.MutableRefObject<((identity: KeyIdentity) => Promise<SignerInterface>) | undefined>;
+}) {
+  const { authState, connectViaNostrConnect, setKeys, registerKey, setActiveKey } = useNostrAuth();
   const { isAuthenticated } = useAuthHelpers();
   const autoConnectAttempted = useRef(false);
   const prevConnectedRef = useRef(authState.isConnected);
@@ -89,12 +112,77 @@ function SessionSyncManager({
   const [isResolving, setIsResolving] = useState(autoConnect !== false);
 
   /**
-   * Sync successful auth to shared session cookies
+   * Mint a signer for a specific key_id + pubkey via the nostrconnect/session flow.
+   *
+   * The onUri callback POSTs the nostrconnect URI to the signer's session endpoint
+   * for auto-approval. If the signer returns consent_required or an error, we cancel
+   * so the returned promise rejects (callers handle that gracefully).
+   *
+   * Used by:
+   *   - attemptSsoConnect (bootstrap): mint the active key's signer on load.
+   *   - resolveSigner (on-demand): mint a signer for any key on setActiveKey().
+   */
+  const mintSignerForKey = useCallback(async (
+    keyId: string,
+    _pubkey: string,
+  ): Promise<SignerInterface> => {
+    return new Promise<SignerInterface>((resolve, reject) => {
+      let ncSessionRef: NostrConnectSession | null = null;
+
+      const onUri = async (uri: string, ncSession: NostrConnectSession) => {
+        ncSessionRef = ncSession;
+        try {
+          const sessionRes = await fetch(`${signerUrl}/api/v1/nostrconnect/session`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ uri, key_id: keyId }),
+          });
+          if (!sessionRes.ok) {
+            ncSession.cancel();
+            reject(new Error(`nostrconnect/session failed: ${sessionRes.status}`));
+            return;
+          }
+          const body = (await sessionRes.json()) as { success?: boolean; consent_required?: boolean };
+          if (body.consent_required || !body.success) {
+            ncSession.cancel();
+            reject(new Error('consent_required or not success'));
+            return;
+          }
+          // success: let approved resolve and hand the ready signer to caller
+          ncSession.approved.then(resolve).catch(reject);
+        } catch (err) {
+          ncSession.cancel();
+          reject(err);
+        }
+      };
+
+      connectViaNostrConnect(undefined, onUri).catch((err) => {
+        // Only reject if onUri was never called (connectViaNostrConnect itself threw)
+        if (!ncSessionRef) reject(err);
+      });
+    });
+  }, [signerUrl, connectViaNostrConnect]);
+
+  /**
+   * resolveSigner: injected into AuthProvider so setActiveKey() can mint a signer
+   * for any known key on demand (when no cached signer exists for that pubkey).
+   */
+  const resolveSigner = useCallback(async (identity: KeyIdentity): Promise<SignerInterface> => {
+    const keyId = identity.pubkey.slice(0, 16);
+    return mintSignerForKey(keyId, identity.pubkey);
+  }, [mintSignerForKey]);
+
+  // Keep the ref up-to-date so AuthProvider always calls the current closure
+  useEffect(() => {
+    resolveSignerRef.current = resolveSigner;
+  }, [resolveSignerRef, resolveSigner]);
+
+  /**
+   * Sync successful auth to shared session cookies on connect transition
    */
   useEffect(() => {
-    // Only sync if we just became connected (transition from false to true)
     if (authState.isConnected && !prevConnectedRef.current && authState.pubkey && authState.method) {
-      // Get bunker URL from localStorage if NIP-46
       let bunkerUrl: string | undefined;
       if (authState.method === 'nip46') {
         try {
@@ -103,106 +191,125 @@ function SessionSyncManager({
           // localStorage not available
         }
       }
-
       saveSharedSession({
         method: authState.method,
         pubkey: authState.pubkey,
         bunkerUrl,
       });
     }
-
     prevConnectedRef.current = authState.isConnected;
   }, [authState.isConnected, authState.pubkey, authState.method]);
+
+  /**
+   * Persist activePubkey to cookie whenever it changes so other tabs can follow
+   */
+  useEffect(() => {
+    if (authState.activePubkey) {
+      setActivePubkeyCookie(authState.activePubkey);
+    }
+  }, [authState.activePubkey]);
+
+  /**
+   * Cross-tab key-switch propagation.
+   *
+   * Poll the activePubkey cookie every 2s, and also on window focus + storage
+   * events. When another tab calls setActiveKey(), the cookie changes; we call
+   * setActiveKey here so this tab picks up the switch without a reload.
+   */
+  useEffect(() => {
+    const checkCookieSwitch = () => {
+      const cookiePubkey = getActivePubkeyCookie();
+      if (
+        cookiePubkey &&
+        authState.activePubkey &&
+        cookiePubkey !== authState.activePubkey &&
+        !authState.isSwitching
+      ) {
+        void setActiveKey(cookiePubkey);
+      }
+    };
+
+    const interval = setInterval(checkCookieSwitch, 2000);
+    window.addEventListener('focus', checkCookieSwitch);
+    window.addEventListener('storage', checkCookieSwitch);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', checkCookieSwitch);
+      window.removeEventListener('storage', checkCookieSwitch);
+    };
+  }, [authState.activePubkey, authState.isSwitching, setActiveKey]);
 
   /**
    * Clear shared session on disconnect
    */
   useEffect(() => {
     if (!authState.isConnected && prevConnectedRef.current) {
-      // User disconnected - clear shared session
       clearSharedSession();
     }
   }, [authState.isConnected]);
 
   /**
-   * SSO bootstrap: resolve the shared `.cloistr.xyz` signer session on load and
-   * silently reconnect. This is the unified-auth slice 1 (see
-   * arbiter/cloistr/architecture/unified-auth-design.md §8.3).
+   * SSO bootstrap: resolve the shared `.cloistr.xyz` signer session on load.
    *
-   * Precedence:
-   *  1. If a signer session exists (`GET /api/v1/keys` rides the parent-domain
-   *     cookie), drive an *auto-approved* nostrconnect — real signer, no extension
-   *     prompt, works across subdomains even with no per-origin localStorage.
-   *  2. Else fall back to the per-origin localStorage shared session (legacy
-   *     nip07/nip46 restore).
+   * Multi-identity flow:
+   *  1. GET /api/v1/keys → full list. Map all to KeyIdentity; call setKeys(all).
+   *  2. Determine active key: activePubkey cookie (if still in list) else keys[0].
+   *  3. Mint signer for active key via mintSignerForKey; registerKey(active, signer, {activate:true}).
+   *  4. Return true (connected). Return false on 401/empty/mint failure → legacy path.
    *
-   * Why this kills the re-prompt: previously TWO restore paths raced — the inner
-   * `@cloistr/auth` `autoRestore` AND this manager — both calling `connectNip07()`
-   * (which re-prompts on `getPublicKey`). We now disable the inner autoRestore
-   * (see SharedAuthProvider below) and prefer the silent SSO path here.
+   * Only runs on cloistr.xyz origins (parent-domain cookie required).
    */
-
-  // Attempt SSO via the signer session. Returns true if it established (or is
-  // establishing) a connection; false if there is no usable signer session and
-  // the caller should fall back to the legacy localStorage restore.
   const attemptSsoConnect = useCallback(async (): Promise<boolean> => {
-    // Cross-origin credentialed probe only makes sense on a cloistr.xyz origin
-    // (the parent-domain cookie won't be sent otherwise); dev/other origins fall
-    // straight through to the legacy path.
     if (!isCloistrDomain()) return false;
 
-    let sessionKeyId: string | null = null;
+    let signerKeys: SignerKey[] = [];
     try {
       const keysRes = await fetch(`${signerUrl}/api/v1/keys`, { credentials: 'include' });
       if (keysRes.ok) {
         const keysBody = (await keysRes.json()) as unknown;
-        const keys = Array.isArray(keysBody)
-          ? keysBody
-          : ((keysBody as { keys?: Array<{ id: string }> }).keys ?? []);
-        if (keys.length) sessionKeyId = (keys[0] as { id: string }).id;
+        signerKeys = Array.isArray(keysBody)
+          ? (keysBody as SignerKey[])
+          : (((keysBody as { keys?: SignerKey[] }).keys) ?? []);
       }
-      // 401 / no keys → no signer session → sessionKeyId stays null.
+      // 401 / empty → no signer session
     } catch {
-      // Network/CORS error → treat as no session, fall back to legacy.
       return false;
     }
 
-    if (!sessionKeyId) return false;
+    if (signerKeys.length === 0) return false;
 
-    // Active session — drive an auto-approved nostrconnect. The POST happens
-    // inside the onUri callback (before we await approval); if the signer needs
-    // first-time consent (or the session expired), we cancel the pending connect
-    // so it never hangs and never falls through to an extension re-prompt.
-    const capturedKeyId = sessionKeyId;
-    await connectViaNostrConnect(undefined, async (uri, ncSession) => {
-      try {
-        const sessionRes = await fetch(`${signerUrl}/api/v1/nostrconnect/session`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ uri, key_id: capturedKeyId }),
-        });
-        if (!sessionRes.ok) {
-          ncSession.cancel();
-          return;
-        }
-        const body = (await sessionRes.json()) as {
-          success?: boolean;
-          consent_required?: boolean;
-        };
-        if (body.consent_required || !body.success) {
-          // First-time consent needs the LoginModal UI; don't auto-approve
-          // silently. Abort cleanly — the user will see the modal / consent
-          // screen on demand rather than an extension prompt.
-          ncSession.cancel();
-        }
-        // body.success → let `approved` resolve; state flips to connected silently.
-      } catch {
-        ncSession.cancel();
-      }
-    });
-    return true;
-  }, [signerUrl, connectViaNostrConnect]);
+    // Build the full KeyIdentity list and populate the context
+    const allIdentities: KeyIdentity[] = signerKeys.map((k) => ({
+      pubkey: k.pubkey ?? k.id,
+      method: 'nip46' as const,
+      name: k.name,
+    }));
+    setKeys(allIdentities);
+
+    // Determine active key: cookie value if present in list, else first key
+    const cookieActive = getActivePubkeyCookie();
+    const activeIdentity =
+      (cookieActive != null && allIdentities.find((i) => i.pubkey === cookieActive)) ||
+      allIdentities[0];
+
+    if (!activeIdentity) return false;
+
+    // Resolve the signer-API key_id (the signer's internal identifier for the key)
+    const activeSignerKey = signerKeys.find(
+      (k) => (k.pubkey ?? k.id) === activeIdentity.pubkey,
+    );
+    const keyId = activeSignerKey?.id ?? activeIdentity.pubkey.slice(0, 16);
+
+    try {
+      const signer = await mintSignerForKey(keyId, activeIdentity.pubkey);
+      registerKey(activeIdentity, signer, { activate: true });
+      return true;
+    } catch {
+      // consent_required or network failure; fall back
+      return false;
+    }
+  }, [signerUrl, setKeys, registerKey, mintSignerForKey]);
 
   const attemptAutoConnect = useCallback(async () => {
     if (autoConnectAttempted.current || isAuthenticated || authState.isConnecting) {
@@ -222,34 +329,16 @@ function SessionSyncManager({
         console.warn('SSO bootstrap failed, falling back to local session:', error);
       }
 
-      // 2. Legacy fallback: per-origin localStorage shared session.
+      // 2. Legacy fallback: check if a shared session cookie exists. On non-cloistr
+      // origins (dev/test) we can't drive the nostrconnect flow, so we report
+      // not-connected and let the app show its login UI.
       const session = getSharedSession();
-      if (!session) {
-        onAutoConnectComplete?.(false);
-        return;
-      }
-
-      try {
-        if (session.method === 'nip07' && isNip07Supported()) {
-          await connectNip07();
-          onAutoConnectComplete?.(true, session.pubkey);
-        } else if (session.method === 'nip46' && session.bunkerUrl) {
-          await connectNip46({ bunkerUrl: session.bunkerUrl });
-          onAutoConnectComplete?.(true, session.pubkey);
-        } else {
-          // Session exists but can't restore (e.g., NIP-07 extension not installed)
-          onAutoConnectComplete?.(false);
-        }
-      } catch (error) {
-        console.warn('Failed to auto-connect from shared session:', error);
-        // Don't clear shared session - might work on another page
-        onAutoConnectComplete?.(false);
-      }
+      onAutoConnectComplete?.(false, session?.pubkey);
     } finally {
       // Restore settled (success OR failure) — release the login gate.
       setIsResolving(false);
     }
-  }, [isAuthenticated, authState.isConnecting, attemptSsoConnect, connectNip07, connectNip46, onAutoConnectComplete]);
+  }, [isAuthenticated, authState.isConnecting, attemptSsoConnect, onAutoConnectComplete]);
 
   /**
    * Attempt auto-connect on mount
@@ -348,19 +437,35 @@ export function SharedAuthProvider({
   onAutoConnectComplete,
   signerUrl,
 }: SharedAuthProviderProps) {
-  // autoRestore is intentionally FALSE: SessionSyncManager owns the single
+  // resolveSigner is built inside SessionSyncInner (needs connectViaNostrConnect
+  // from the auth context). We hoist it into a stable ref so AuthProvider receives
+  // a stable function reference while still calling the current closure.
+  const resolveSignerRef = useRef<((identity: KeyIdentity) => Promise<SignerInterface>) | undefined>(undefined);
+
+  const resolveSignerProp = useCallback(
+    (identity: KeyIdentity): Promise<SignerInterface> => {
+      if (!resolveSignerRef.current) {
+        return Promise.reject(new Error('resolveSigner not yet initialized'));
+      }
+      return resolveSignerRef.current(identity);
+    },
+    [],
+  );
+
+  // autoRestore is intentionally FALSE: SessionSyncInner owns the single
   // restore path (SSO-first, then legacy localStorage). Leaving the inner
   // @cloistr/auth autoRestore on would race a second connectNip07() → the
   // extension re-prompt bug the unified-auth work is fixing.
   return (
-    <AuthProvider autoRestore={false}>
-      <SessionSyncManager
+    <AuthProvider autoRestore={false} resolveSigner={resolveSignerProp}>
+      <SessionSyncInner
         autoConnect={autoConnect}
         onAutoConnectComplete={onAutoConnectComplete}
         signerUrl={signerUrl}
+        resolveSignerRef={resolveSignerRef}
       >
         {children}
-      </SessionSyncManager>
+      </SessionSyncInner>
     </AuthProvider>
   );
 }
