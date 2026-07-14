@@ -238,9 +238,15 @@ function SessionSyncInner({
     }
     // Small delay to let the page settle.
     const timeout = setTimeout(attemptAutoConnect, 100);
-    // Safety cap: never hold the login gate longer than 3s even if a restore
-    // (e.g. a nostrconnect round-trip) stalls — apps then proceed as logged-out.
-    const safety = setTimeout(() => setIsResolving(false), 3000);
+    // Safety cap: a last-resort backstop for a genuinely hung restore. It must
+    // sit ABOVE the NIP-46 relay handshake ceiling (bootstrapKeys →
+    // startNostrConnect uses CONNECT_TIMEOUT_MS=10s, and the ack triggers a
+    // second connectNip46 round-trip), otherwise it fires mid-handshake and
+    // flips the app to logged-out while a valid SSO session is still resolving
+    // — the intermittent false-logout seen on cross-subdomain app-switch. The
+    // happy path never waits this long: attemptAutoConnect's finally releases
+    // the gate the moment bootstrapKeys settles (success or failure).
+    const safety = setTimeout(() => setIsResolving(false), 12000);
     return () => {
       clearTimeout(timeout);
       clearTimeout(safety);
