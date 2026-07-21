@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import QRCode from 'qrcode';
 import { useNostrAuth, useAuthHelpers, isValidBunkerUrl } from '../auth/index.js';
+import { isValidHumanName } from '../lib/username.js';
 
 /** Data passed to onSession callback in session mode */
 export interface SessionData {
@@ -935,7 +936,7 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
                   className="cloistr-btn cloistr-btn-primary"
                   disabled={
                     suBusy ||
-                    su.username.length < 3 ||
+                    !isValidHumanName(su.username) ||
                     su.password.length < 8 ||
                     su.password !== su.passwordConfirm
                   }

@@ -25,3 +25,15 @@ export {
 } from './session.js';
 export type { SharedSession, SessionTTL } from './session.js';
 // Note: AuthMethod type is exported from './auth' (via collab-common)
+
+// Canonical username validation (mirrors Go cloistr-common/username; DB CHECK is authoritative).
+export {
+  VALID_PATTERN,
+  AUTO_ASSIGNED_PATTERN,
+  isValid,
+  isAutoAssigned,
+  isValidHumanName,
+} from './username.js';
+
+// Lightning address / invoice validation helpers.
+export * from './lightning.js';
