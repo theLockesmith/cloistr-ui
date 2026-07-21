@@ -42,8 +42,8 @@
   },
   "devDependencies": {
     "@cloistr/auth": "^0.4.0",
-    "@types/react": "^18.2.0",
-    "@types/react-dom": "^18.2.0",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
     "typescript": "^5.4.0",
     "vitest": "^2.1.9"
   },
