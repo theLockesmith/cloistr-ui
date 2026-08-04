@@ -237,7 +237,12 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
         const keys = Array.isArray(keysBody)
           ? keysBody
           : ((keysBody as { keys?: Array<{ id: string }> }).keys ?? []);
-        if (keys.length) sessionKeyId = (keys[0] as { id: string }).id;
+        if (keys.length) {
+          // Prefer the key marked as primary; fall back to keys[0] only for
+          // legacy accounts that pre-date the is_primary field on the API.
+          const pk = (keys as Array<{ id: string; is_primary?: boolean }>).find(k => k.is_primary) ?? keys[0];
+          sessionKeyId = (pk as { id: string }).id;
+        }
       }
       // 401 = no session → sessionKeyId remains null → fall back to manual
     } catch {
@@ -533,7 +538,10 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
         ? keysBody
         : ((keysBody as { keys?: Array<{ id: string }> }).keys ?? []);
       if (!keys.length) throw new Error('No signing key found for this account');
-      const keyId = (keys[0] as { id: string }).id;
+      // Prefer the key marked as primary; fall back to keys[0] only for
+      // legacy accounts that pre-date the is_primary field on the API.
+      const primaryKey = (keys as Array<{ id: string; is_primary?: boolean }>).find(k => k.is_primary) ?? keys[0];
+      const keyId = (primaryKey as { id: string }).id;
 
       setPendingIsManual(false);
       await connectViaNostrConnect(undefined, async (uri, session) => {
@@ -628,7 +636,11 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
         ? keysBody
         : ((keysBody as { keys?: Array<{ id: string }> }).keys ?? []);
       if (!keys.length) throw new Error('No signing key was created for the account');
-      const keyId = (keys[0] as { id: string }).id;
+      // New registrations always have exactly one key and it is primary, but
+      // use the same primary-key selection so the logic is consistent and
+      // handles any future edge cases (e.g. import_nsec on a pre-existing account).
+      const signupPrimaryKey = (keys as Array<{ id: string; is_primary?: boolean }>).find(k => k.is_primary) ?? keys[0];
+      const keyId = (signupPrimaryKey as { id: string }).id;
 
       setSuStatus('Connecting your new identity…');
       setPendingIsManual(false);

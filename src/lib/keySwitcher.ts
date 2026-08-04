@@ -37,6 +37,7 @@ export interface SignerKey {
   id: string;
   pubkey?: string;
   name?: string;
+  is_primary?: boolean;
 }
 
 /** Per-tab pin surface (same shape as SharedSessionContextValue.pin) */
@@ -222,9 +223,14 @@ export function useKeySwitcherBootstrap(
     setKeys(allIdentities);
 
     const cookieActive = getActivePubkeyCookie();
+    // Prefer the key the user explicitly set as primary; fall back to the
+    // first key only for legacy accounts that pre-date the is_primary field.
+    const primarySignerKey = signerKeys.find((k) => k.is_primary) ?? signerKeys[0];
+    const primaryPubkey = primarySignerKey.pubkey ?? primarySignerKey.id;
     const activeIdentity =
       (cookieActive != null &&
         allIdentities.find((i) => i.pubkey === cookieActive)) ||
+      allIdentities.find((i) => i.pubkey === primaryPubkey) ||
       allIdentities[0];
 
     if (!activeIdentity) return false;
