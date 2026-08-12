@@ -51,6 +51,10 @@
   --cloistr-transition-normal: 250ms ease;
 
   /* Z-index layers */
+  /* Header sits above page content but BELOW every overlay: dropdowns and the
+     app switcher are anchored inside it and must escape it, and a modal must
+     cover it rather than slide underneath. */
+  --cloistr-z-header: 50;
   --cloistr-z-dropdown: 100;
   --cloistr-z-app-switcher: 150;
   --cloistr-z-modal: 200;
