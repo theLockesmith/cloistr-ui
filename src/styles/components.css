@@ -101,7 +101,23 @@
 }
 
 /* Header */
+/* The header is PINNED. It carries the app switcher, the user menu and the
+ * theme toggle, so losing it on scroll means scrolling back up to navigate —
+ * most acutely on mobile, where the viewport is short and the file list is
+ * long.
+ *
+ * `sticky` rather than `fixed`: sticky keeps the header in normal flow, so the
+ * page content below it needs no compensating top padding and no app has to
+ * know the header's height. A `fixed` header would overlap the first row of
+ * every app's content until each one added its own offset.
+ *
+ * The z-index sits below the modal and dropdown layers on purpose — a modal
+ * must still cover the header, not slide under it.
+ */
 .cloistr-header {
+  position: sticky;
+  top: 0;
+  z-index: var(--cloistr-z-header, 50);
   display: flex;
   align-items: center;
   justify-content: space-between;
