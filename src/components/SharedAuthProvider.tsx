@@ -274,7 +274,23 @@ function SessionSyncInner({
   // a cloistr.xyz origin (and we're not already authenticated), hold the app's
   // first render so it can't redirect to /login before the session resolves.
   // Bounded by the 3s safety cap above; a no-op off-cloistr or once resolved.
-  const gateRestore = isResolving && !isAuthenticated && isCloistrDomain();
+  //
+  // ALSO covers the NIP-46 handshake that follows. isResolving clears when
+  // bootstrapKeys settles, but the signer round-trip then runs under
+  // isConnecting — and during that window an app seeing only `isConnected:false`
+  // renders its sign-in screen. For a user who already has a shared session and
+  // is just moving between apps, that reads as being logged out: reported as
+  // "I see a bunker URL modal, or nothing, between pages".
+  //
+  // Gated on hasSharedSession() so this only affects RETURNING users. A first
+  // login must NOT be covered — there the person is deliberately on the sign-in
+  // screen and LoginModal has its own inline connecting affordance (disabled
+  // buttons, "Connecting..."); replacing that with a full-screen spinner would
+  // hide the very controls they are interacting with.
+  const restoringSession = isResolving && !isAuthenticated && isCloistrDomain();
+  const reconnectingKnownSession =
+    !!authState.isConnecting && !isAuthenticated && hasSharedSession();
+  const gateRestore = restoringSession || reconnectingKnownSession;
 
   return (
     <SharedSessionContext.Provider value={sharedSessionValue}>
