@@ -241,6 +241,83 @@ Every app ships the **canonical Cloistr favicon**, never Vite's `vite.svg` defau
 - **Anti-patterns:** shipping `vite.svg`; a per-app one-off icon; referencing an icon file that isn't distributed from `cloistr-assets`.
 - New apps get the canonical favicon via the scaffold; `cloistr-app-audit` flags any app still referencing `vite.svg` or missing `ThemeProvider`.
 
+### 5.8 Responsive Web — Mandatory
+
+**"Mobile deferred" in §5.3 means NATIVE PACKAGING, not small screens.** That
+distinction was never written down, and its absence is the whole reason this
+drifted: §5.3 reads as blanket permission to ignore phones, so nothing ever
+required the *web* app to work on one. Deferring a Tauri/RN build says nothing
+about a browser at 375px, which is how most people will first touch Cloistr.
+
+Measured 2026-08-13 across 11 apps — responsive breakpoint usage
+(Tailwind `sm:`/`md:`/`lg:` prefixes plus raw media queries):
+
+| Breakpoint uses | Apps |
+|---|---|
+| **0** | docs, sheets, slides, whiteboard, tasks, vault, nostrat |
+| 2–13 | stash (2), space (5), email (11), me-ui (13) |
+
+Seven apps have **no responsive handling at all**. This is not a few stray pages.
+
+**The standard.** Every app must be usable in a 375 x 667 viewport:
+
+- **No horizontal overflow.** The page must not scroll sideways. This is the one
+  objectively testable property and it is what actually breaks: `cloistr-email`
+  shipped a fixed `w-64` sidebar that consumed ~68% of a 375px viewport, leaving
+  almost nothing to compose a message in.
+- **Navigation chrome collapses.** A persistent sidebar becomes an off-canvas
+  drawer below `md`, reachable from a control in the header. It must be
+  dismissable by backdrop, by an explicit close control, by `Escape`, and on
+  navigation.
+- **`min-w-0` on flex/grid content columns.** The default `min-width: auto` lets
+  one wide child (a long subject line, a table) set the floor and overflow the
+  layout horizontally no matter what the sidebar does.
+- **Touch targets >= 44px** on primary actions.
+- **`dvh`, not `vh`,** for full-height shells, so the mobile URL bar hiding does
+  not make the layout jump. Keep `vh` first as a fallback.
+- **Never a fixed-height ancestor chain** (`html, body, #root { height: 100% }`)
+  around a growing app. It silently defeats `position: sticky` on descendants —
+  this is exactly why the shared header would not pin in `cloistr-stash` even
+  with correct, deployed CSS.
+
+**Proportionality — this is not "every app is a phone app".** Canvas-shaped apps
+(`docs`, `sheets`, `slides`, `whiteboard`) are legitimately desktop-first for
+*editing*. For those the bar is: readable, navigable, no sideways scroll — a
+usable **viewer** with graceful degradation. Consumption-heavy apps (`email`,
+`tasks`, `space`, `stash`, `me-ui`) must be genuinely usable one-handed. State
+the tier in the app's own CLAUDE.md; do not silently pick the lower one.
+
+**Enforcement — and its limits, measured not assumed.**
+`cloistr-app-audit` runs `tests/responsive.spec.ts` against every live app at
+375 x 667 with two assertions: no horizontal overflow, and navigation chrome
+occupying < 33% of the viewport.
+
+Two findings from actually running it, both worth keeping:
+
+1. **Overflow alone proves nothing.** The first version asserted only
+   `scrollWidth <= innerWidth` and passed all eleven apps, *including* the app
+   with the known-bad sidebar. A 256px sidebar in a 375px viewport does not
+   overflow — it squeezes content into 119px. The page fits and is unusable.
+   Hence the second, load-bearing assertion.
+
+2. **The audit is unauthenticated, so it cannot see the layouts that matter.**
+   Verified: `email.cloistr.xyz` logged-out redirects to `/login` with zero
+   `<aside>` and zero `<nav>`. Its `w-64` sidebar — the bug that prompted this
+   whole section — lives behind auth, and BOTH assertions pass against the
+   unfixed app. A green run means "the public shell is fine", not "the app works
+   on a phone".
+
+   This is a gap in §4b generally, not just here: every authenticated workspace
+   in the fleet is currently unaudited. Closing it needs a per-app component
+   test that mounts the real `Layout` at 375px (no live credentials required),
+   or a seeded audit identity. **Until one exists, §5.8 on authenticated views
+   is reviewed by hand and is not mechanically enforced — do not read a green
+   audit as coverage.**
+
+- **Anti-patterns:** fixed-width chrome with no breakpoint; `height: 100%` on the
+  html/body/#root chain; `100vh` on a mobile shell; hiding overflow to mask a
+  layout that overflows; declaring an app desktop-only to avoid the work.
+
 ---
 
 ## 6. The `@cloistr/ui` Component Contract
