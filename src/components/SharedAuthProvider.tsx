@@ -313,15 +313,35 @@ function SessionSyncInner({
             background: 'var(--cloistr-bg)',
           }}
         >
-          <Spinner size="xl" label="Signing you in" />
+          <Spinner size="xl" label="Signing you in securely" />
           <p
             style={{
-              color: 'var(--cloistr-text-muted)',
+              color: 'var(--cloistr-text)',
               fontSize: '0.95rem',
               margin: 0,
             }}
           >
-            Signing you in…
+            Signing you in securely…
+          </p>
+          {/* The reassuring line is the SPECIFIC one, not the adjective.
+              "Securely" on its own is filler — every product says it, so it
+              carries little signal for the people who need reassurance most.
+              What actually settles someone during a wait is a concrete,
+              checkable statement, and this one happens to be Cloistr's real
+              differentiator at exactly this moment: NIP-46 means the private
+              key stays in the signer and only a signature crosses the wire.
+              Keep this claim literally true — if a flow is ever added where the
+              key does leave the signer, this line must not be shown for it. */}
+          <p
+            style={{
+              color: 'var(--cloistr-text-muted)',
+              fontSize: '0.8125rem',
+              margin: 0,
+              maxWidth: '22rem',
+              textAlign: 'center',
+            }}
+          >
+            Your private key stays in your signer — it is never sent to Cloistr.
           </p>
         </div>
       ) : (
