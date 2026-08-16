@@ -128,6 +128,27 @@ export function useKeySwitcherBootstrap(
         const onUri = async (uri: string, ncSession: NostrConnectSession) => {
           ncSessionRef = ncSession;
           try {
+            // WAIT UNTIL WE ARE LISTENING BEFORE ASKING THE SIGNER TO APPROVE.
+            //
+            // The POST below tells the signer to approve, and it publishes the
+            // ack immediately. Kind 24133 is in the ephemeral range
+            // (20000-29999), which relays do NOT store — so an ack published
+            // before our REQ is on the wire is lost permanently and `approved`
+            // just waits out its 30s timeout. No signer, no JWT exchange, and
+            // the app shows a sign-in screen to someone holding a valid
+            // session.
+            //
+            // Measured in production before this: POST /nostrconnect/session
+            // returned 200 and the relay sockets were open on EVERY attempt,
+            // yet 2 of 4 loads never reached /auth/challenge at all.
+            // Optional-chained on purpose: @cloistr/auth gains `subscribed` in
+            // the release that adds it, and this package must keep building
+            // against the currently-published version. On an older auth this
+            // is a no-op and behaviour is exactly as before; once the bump
+            // lands the wait takes effect. Avoids a lockstep release.
+            await (ncSession as NostrConnectSession & { subscribed?: Promise<void> })
+              .subscribed;
+
             const sessionRes = await fetch(
               `${signerUrl}/api/v1/nostrconnect/session`,
               {
