@@ -57,6 +57,7 @@ import {
 import type { SharedSession } from '../lib/session.js';
 import { useKeySwitcherBootstrap } from '../lib/keySwitcher.js';
 import { SharedSessionContext } from './SharedAuthProvider.js';
+import { AuthRestoreGate } from './AuthRestoreGate.js';
 
 // ============================================
 // Types
@@ -661,9 +662,26 @@ function BackendAuthInner({ children, config, resolveSignerRef }: InnerProviderP
     ]
   );
 
+  // Gate the app behind the SAME "Signing you in securely" view SharedAuthProvider
+  // uses. Added 2026-08-17.
+  //
+  // This provider previously rendered `children` straight through with no gate,
+  // so every backend-auth app invented its own placeholder — cloistr-email showed
+  // a bare "Loading...". Reported on mail.cloistr.xyz: the silent SSO ran on page
+  // load, failed, and the user saw neither the fleet's gate nor any explanation,
+  // making mail look like a different product with a different sign-in.
+  //
+  // Condition mirrors SharedAuthProvider's `restoringSession`: only gate while
+  // the on-load restore is genuinely in flight, only when logged out, and only
+  // on a cloistr.xyz domain (elsewhere there is no shared session to restore, so
+  // gating would just stall the app behind a spinner that can never resolve).
+  const gateRestore = isResolving && !isAuthenticated() && isCloistrDomain();
+
   return (
     <SharedSessionContext.Provider value={sharedSessionValue}>
-      <BackendAuthContext.Provider value={value}>{children}</BackendAuthContext.Provider>
+      <BackendAuthContext.Provider value={value}>
+        {gateRestore ? <AuthRestoreGate /> : children}
+      </BackendAuthContext.Provider>
     </SharedSessionContext.Provider>
   );
 }

@@ -30,7 +30,7 @@ import {
   type SharedSession,
 } from '../lib/session.js';
 import { useKeySwitcherBootstrap } from '../lib/keySwitcher.js';
-import { Spinner } from './Spinner.js';
+import { AuthRestoreGate } from './AuthRestoreGate.js';
 
 export interface SharedAuthProviderProps {
   children: ReactNode;
@@ -298,52 +298,13 @@ function SessionSyncInner({
         // Shared "signing you in" view shown while the silent SSO restore runs
         // (bounded by the 3s cap). Gives every SharedAuthProvider app a single,
         // consistent login-in-progress affordance instead of a blank flash or a
-        // raw nostrconnect modal. Themed via design tokens so it follows
-        // light/dark automatically.
-        <div
-          aria-busy="true"
-          role="status"
-          style={{
-            minHeight: '100vh',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '1rem',
-            background: 'var(--cloistr-bg)',
-          }}
-        >
-          <Spinner size="xl" label="Signing you in securely" />
-          <p
-            style={{
-              color: 'var(--cloistr-text)',
-              fontSize: '0.95rem',
-              margin: 0,
-            }}
-          >
-            Signing you in securely…
-          </p>
-          {/* The reassuring line is the SPECIFIC one, not the adjective.
-              "Securely" on its own is filler — every product says it, so it
-              carries little signal for the people who need reassurance most.
-              What actually settles someone during a wait is a concrete,
-              checkable statement, and this one happens to be Cloistr's real
-              differentiator at exactly this moment: NIP-46 means the private
-              key stays in the signer and only a signature crosses the wire.
-              Keep this claim literally true — if a flow is ever added where the
-              key does leave the signer, this line must not be shown for it. */}
-          <p
-            style={{
-              color: 'var(--cloistr-text-muted)',
-              fontSize: '0.8125rem',
-              margin: 0,
-              maxWidth: '22rem',
-              textAlign: 'center',
-            }}
-          >
-            Your private key stays in your signer — it is never sent to Cloistr.
-          </p>
-        </div>
+        // raw nostrconnect modal.
+        //
+        // Extracted to AuthRestoreGate 2026-08-17 so BackendAuthProvider renders
+        // the IDENTICAL view. It previously had no gate at all, which is why
+        // mail.cloistr.xyz showed a bare "Loading..." and looked like a
+        // different product from the rest of the suite.
+        <AuthRestoreGate />
       ) : (
         children
       )}
