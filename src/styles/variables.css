@@ -55,6 +55,20 @@
      app switcher are anchored inside it and must escape it, and a modal must
      cover it rather than slide underneath. */
   --cloistr-z-header: 50;
+  /* Off-canvas mobile drawer. ABOVE the header on purpose: a drawer that slides
+     out from the left edge starts at top:0, so anything at or below the header's
+     layer gets its top clipped by the sticky header.
+
+     Added 2026-08-18 after exactly that shipped in two apps. cloistr-email and
+     cloistr-stash both hand-rolled `z-index: 40` — outside this scale, below the
+     header — and on a phone the top of the open drawer sat behind the header,
+     with the drawer's own close control hidden underneath it. Same bug, twice,
+     because neither app used the scale.
+
+     Kept BELOW --cloistr-z-dropdown so a menu opened inside the drawer still
+     escapes it, and below the modal layer so a dialog covers the drawer. */
+  --cloistr-z-drawer-backdrop: 60;
+  --cloistr-z-drawer: 70;
   --cloistr-z-dropdown: 100;
   --cloistr-z-app-switcher: 150;
   --cloistr-z-modal: 200;
