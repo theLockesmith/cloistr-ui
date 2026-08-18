@@ -23,6 +23,8 @@ export { SharedAuthProvider, useSharedSession, useSharedSessionMaybe } from './S
 export type { SharedAuthProviderProps } from './SharedAuthProvider.js';
 
 export { BackendAuthProvider, useBackendAuth } from './BackendAuthProvider.js';
+export { AuthRestoreGate } from './AuthRestoreGate.js';
+export type { AuthRestoreGateProps } from './AuthRestoreGate.js';
 export type {
   BackendAuthProviderProps,
   BackendAuthConfig,
