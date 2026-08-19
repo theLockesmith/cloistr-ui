@@ -37,3 +37,5 @@ export {
 
 // Lightning address / invoice validation helpers.
 export * from './lightning.js';
+
+export { installDebugConsole, isDebugRequested, formatArg } from './debugConsole.js';
