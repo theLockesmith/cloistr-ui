@@ -1188,3 +1188,214 @@
 .cloistr-lightning-open {
   color: var(--cloistr-primary-light);
 }
+
+/* ==========================================================================
+   Sidebar — shared navigation rail / drawer
+   ==========================================================================
+
+   TWO COLLAPSE MODES, DELIBERATELY DIFFERENT:
+
+     below 768px  collapses COMPLETELY (off-canvas drawer + backdrop). A phone
+                  has no room to spare — a permanently-mounted 16rem rail is
+                  ~68% of a 375px viewport, which is what made mail's compose
+                  screen unusable.
+     768px and up collapses TO ICONS, staying in flow. A wide screen has room
+                  for a persistent affordance, and losing navigation entirely
+                  there is worse than showing it narrow.
+
+   768px is Tailwind's `md`. The apps style themselves with Tailwind and this
+   component ships plain CSS (governance 5.5), so the two MUST agree on the
+   boundary or a drawer would be off-canvas while the app thinks it is in flow.
+
+   Layering uses the shared drawer tokens, ABOVE the sticky header. Four apps
+   independently picked z-40 — below --cloistr-z-header (50) — and every one of
+   them painted the header over the top of its own open drawer.
+   ========================================================================== */
+
+.cloistr-sidebar {
+  display: flex;
+  flex-direction: column;
+  width: 16rem;
+  flex-shrink: 0;
+  background: var(--cloistr-bg-elevated);
+  border-right: 1px solid var(--cloistr-border);
+  overflow-y: auto;
+  transition: transform 0.2s ease-out, width 0.2s ease-out;
+}
+
+/* Mobile: off-canvas until opened. `fixed` takes it OUT of flow, which is what
+   stops it stealing layout width on a phone. */
+@media (max-width: 767px) {
+  .cloistr-sidebar {
+    position: fixed;
+    inset-block: 0;
+    left: 0;
+    z-index: var(--cloistr-z-drawer, 70);
+    transform: translateX(-100%);
+  }
+  .cloistr-sidebar--open {
+    transform: translateX(0);
+  }
+  /* The icons-only state is desktop-only; on a phone the drawer is either
+     fully present or fully gone. */
+  .cloistr-sidebar--collapsed {
+    width: 16rem;
+  }
+}
+
+@media (min-width: 768px) {
+  .cloistr-sidebar {
+    position: static;
+    transform: none;
+  }
+  .cloistr-sidebar--collapsed {
+    width: 4rem;
+  }
+  /* Collapsed = icons only. Labels and badges go, the rail stays. */
+  .cloistr-sidebar--collapsed .cloistr-sidebar-label,
+  .cloistr-sidebar--collapsed .cloistr-sidebar-badge {
+    display: none;
+  }
+  .cloistr-sidebar--collapsed .cloistr-sidebar-item {
+    justify-content: center;
+  }
+  /* The close control is a mobile affordance; the rail is never dismissed
+     entirely on desktop. */
+  .cloistr-sidebar-close {
+    display: none;
+  }
+  .cloistr-sidebar-toggle {
+    display: none;
+  }
+}
+
+.cloistr-sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 50%);
+  z-index: var(--cloistr-z-drawer-backdrop, 60);
+}
+
+@media (min-width: 768px) {
+  /* No backdrop on desktop: the rail is in flow and never overlays content. */
+  .cloistr-sidebar-backdrop {
+    display: none;
+  }
+}
+
+.cloistr-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cloistr-space-sm);
+  padding: var(--cloistr-space-lg);
+}
+
+.cloistr-sidebar-close,
+.cloistr-sidebar-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  color: var(--cloistr-text-muted);
+  padding: var(--cloistr-space-sm);
+  border-radius: var(--cloistr-radius-sm);
+  line-height: 1;
+}
+
+.cloistr-sidebar-close {
+  font-size: 1.5rem;
+}
+
+.cloistr-sidebar-close:hover,
+.cloistr-sidebar-toggle:hover {
+  color: var(--cloistr-text);
+  background: var(--cloistr-bg-hover);
+}
+
+.cloistr-sidebar-nav {
+  flex: 1;
+  padding: 0 var(--cloistr-space-md);
+}
+
+.cloistr-sidebar-nav ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--cloistr-space-xs);
+}
+
+.cloistr-sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: var(--cloistr-space-sm);
+  width: 100%;
+  padding: var(--cloistr-space-sm) var(--cloistr-space-md);
+  border: 0;
+  background: none;
+  border-radius: var(--cloistr-radius-md);
+  color: var(--cloistr-text);
+  text-decoration: none;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.cloistr-sidebar-item:hover {
+  background: var(--cloistr-bg-hover);
+}
+
+.cloistr-sidebar-item--active {
+  background: var(--cloistr-bg-hover);
+  font-weight: 600;
+}
+
+.cloistr-sidebar-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.cloistr-sidebar-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cloistr-sidebar-badge {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  color: var(--cloistr-text-muted);
+}
+
+.cloistr-sidebar-collapse {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .cloistr-sidebar-collapse {
+    display: flex;
+    align-items: center;
+    gap: var(--cloistr-space-sm);
+    margin-top: auto;
+    padding: var(--cloistr-space-md) var(--cloistr-space-lg);
+    border: 0;
+    border-top: 1px solid var(--cloistr-border);
+    background: none;
+    color: var(--cloistr-text-muted);
+    cursor: pointer;
+    font: inherit;
+  }
+  .cloistr-sidebar-collapse:hover {
+    color: var(--cloistr-text);
+    background: var(--cloistr-bg-hover);
+  }
+  .cloistr-sidebar--collapsed .cloistr-sidebar-collapse {
+    justify-content: center;
+  }
+}
