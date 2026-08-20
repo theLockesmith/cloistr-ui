@@ -608,7 +608,24 @@ function BackendAuthInner({ children, config, resolveSignerRef }: InnerProviderP
   const bootstrapAttempted = useRef(false);
   useEffect(() => {
     const session = getSharedSession();
-    if (bootstrapAttempted.current || !isCloistrDomain() || session?.method === 'nip07') {
+
+    // ALREADY RUNNING: leave the gate alone.
+    //
+    // This effect re-runs whenever `bootstrapKeys` changes identity. The old
+    // code lumped "already attempted" in with the genuine no-restore cases and
+    // called setIsResolving(false), which RELEASED THE GATE WHILE THE FIRST
+    // BOOTSTRAP WAS STILL IN FLIGHT. The app then rendered logged-out, redirected
+    // to /login, and only landed on /inbox once the restore finally resolved.
+    //
+    // Measured on mail: /login at t=3s, /inbox at t=6s, on an account with a
+    // perfectly valid session. Reported as "signing you in securely doesn't
+    // work" and as logins not persisting — the session was fine, the gate just
+    // let go too early.
+    //
+    // Releasing here is only correct when no restore will be attempted at all.
+    if (bootstrapAttempted.current) return;
+
+    if (!isCloistrDomain() || session?.method === 'nip07') {
       setIsResolving(false);
       return;
     }

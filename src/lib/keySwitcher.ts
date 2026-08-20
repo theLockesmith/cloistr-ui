@@ -290,6 +290,26 @@ export function useKeySwitcherBootstrap(
         cookiePubkey !== authState.activePubkey &&
         !authState.isSwitching
       ) {
+        // NEVER auto-switch INTO a NIP-07 key.
+        //
+        // resolveSigner() answers a nip07 identity by calling connectNip07(),
+        // which touches window.nostr — and an extension prompts the moment it
+        // is touched. This effect runs on a 2s interval, on focus and on
+        // storage events, so an active-pubkey cookie naming an extension key
+        // made Alby demand authorisation over and over, on a session the user
+        // had established with a password somewhere else entirely.
+        //
+        // Reported as: "it's no longer logging me in with my un/pw and trying
+        // to force an alby login despite showing Signing you in securely."
+        //
+        // An extension is a USER-PRESENT signer. It may only be invoked by
+        // explicit intent — the "login with extension" button, or restoring a
+        // session whose own method was nip07. Background reconciliation does
+        // not qualify, so this leaves the cookie alone and keeps the current
+        // key rather than prompting.
+        const target = authState.keys?.find(k => k.pubkey === cookiePubkey);
+        if (target?.method === 'nip07' && authState.method !== 'nip07') return;
+
         void setActiveKey(cookiePubkey);
       }
     };
