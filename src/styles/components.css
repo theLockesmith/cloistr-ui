@@ -1399,3 +1399,86 @@
     justify-content: center;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Signer recovery ("uh-oh") panel.
+
+   Shown when a signing attempt fails but the SESSION IS STILL VALID. Styled as
+   an in-flow panel rather than a modal on purpose: a modal implies something
+   must be dismissed before continuing, whereas this is a state the user can sit
+   in and act on.
+   --------------------------------------------------------------------------- */
+.cloistr-signer-recovery {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.75rem;
+  max-width: 32rem;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+  color: var(--cloistr-text);
+}
+
+.cloistr-signer-recovery-icon {
+  font-size: 2.5rem;
+  line-height: 1;
+}
+
+.cloistr-signer-recovery-title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.cloistr-signer-recovery-detail {
+  margin: 0;
+  color: var(--cloistr-text-muted);
+  line-height: 1.5;
+}
+
+.cloistr-signer-recovery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.cloistr-signer-recovery-btn {
+  padding: 0.625rem 1.25rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--cloistr-border);
+  background: transparent;
+  color: var(--cloistr-text);
+  font: inherit;
+  cursor: pointer;
+  /* Comfortable tap target: this screen is most often reached on a phone,
+     which is where the relay drops happen. */
+  min-height: 44px;
+}
+
+.cloistr-signer-recovery-btn:hover:not(:disabled) {
+  background: var(--cloistr-bg-hover);
+}
+
+.cloistr-signer-recovery-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.cloistr-signer-recovery-btn--primary {
+  background: var(--cloistr-primary);
+  border-color: var(--cloistr-primary);
+  color: #fff;
+}
+
+.cloistr-signer-recovery-btn--primary:hover:not(:disabled) {
+  background: var(--cloistr-primary-hover);
+}
+
+.cloistr-signer-recovery-reassure {
+  margin: 0.25rem 0 0;
+  font-size: 0.875rem;
+  color: var(--cloistr-text-muted);
+}

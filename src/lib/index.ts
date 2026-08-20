@@ -39,3 +39,15 @@ export {
 export * from './lightning.js';
 
 export { installDebugConsole, isDebugRequested, formatArg } from './debugConsole.js';
+
+export {
+  classifySignerError,
+  isRetryableSignerError,
+  withSignerRetry,
+  retryDelay,
+  signerFailureMessage,
+  RETRYABLE_CODES,
+  NEEDS_USER_CODES,
+  TERMINAL_CODES,
+} from './signerRetry.js';
+export type { SignerFailureKind, SignerRetryOptions } from './signerRetry.js';
