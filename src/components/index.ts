@@ -25,6 +25,8 @@ export type { SharedAuthProviderProps } from './SharedAuthProvider.js';
 export { BackendAuthProvider, useBackendAuth } from './BackendAuthProvider.js';
 export { AuthRestoreGate } from './AuthRestoreGate.js';
 export { Sidebar, SidebarToggle } from './Sidebar.js';
+export { SignerRecovery } from './SignerRecovery.js';
+export type { SignerRecoveryProps } from './SignerRecovery.js';
 export type { SidebarProps, SidebarItem } from './Sidebar.js';
 export type { AuthRestoreGateProps } from './AuthRestoreGate.js';
 export type {
