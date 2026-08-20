@@ -444,9 +444,48 @@ function BackendAuthInner({ children, config, resolveSignerRef }: InnerProviderP
     [performBackendAuth, user?.pubkey]
   );
 
+  /**
+   * Sign out everywhere, not just here.
+   *
+   * Clearing local state and the shared .cloistr.xyz cookie is NOT a sign-out.
+   * Every app holds its own JWT in its OWN origin's localStorage, and no origin
+   * can clear another's. So signing out of mail.cloistr.xyz left the token at
+   * signer.cloistr.xyz untouched, and opening the signer showed you still
+   * signed in — its initAuth trusts that local token before it ever looks at
+   * the shared cookie.
+   *
+   * The only thing that can revoke a token issued to a different origin is the
+   * server. The signer's POST /api/v1/users/logout is the central logout for
+   * the suite: it deletes every session, revokes Vault tokens, and revokes SSO
+   * app consents (unified-auth-design §5). It has always existed; nothing
+   * called it.
+   *
+   * Fire-and-forget on purpose. The local sign-out happens IMMEDIATELY and
+   * unconditionally — if the signer is unreachable, the user must still be able
+   * to sign out of the app in front of them. A sign-out button that can fail is
+   * worse than one whose remote half is best-effort.
+   */
   const logout = useCallback(() => {
+    const signerUrl = config.signerUrl;
+    if (signerUrl) {
+      const headers: Record<string, string> = {};
+      // Send the bearer token when we have one: the endpoint clears the cookie
+      // unconditionally, but only performs server-side session deletion when it
+      // can identify the caller.
+      const current = token ?? localStorage.getItem('access_token');
+      if (current) headers.Authorization = `Bearer ${current}`;
+
+      void fetch(`${signerUrl}/api/v1/users/logout`, {
+        method: 'POST',
+        credentials: 'include',
+        headers,
+      }).catch(() => {
+        // Best-effort by design; local sign-out below already happened.
+      });
+    }
+
     clearAuth();
-  }, [clearAuth]);
+  }, [clearAuth, config.signerUrl, token]);
 
   const isAuthenticated = useCallback(() => {
     return !!token && !!user;
