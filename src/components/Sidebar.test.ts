@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import { sidebarClasses, sidebarItemClasses, collapsedItemA11y } from './Sidebar.js';
 
@@ -52,5 +53,44 @@ describe('collapsedItemA11y', () => {
 
   it('adds nothing when expanded — the visible label is the name', () => {
     expect(collapsedItemA11y(false, 'Inbox')).toEqual({});
+  });
+});
+
+/**
+ * The `children` slot exists so an app with richer navigation than a flat list
+ * can still use this shell. Stash's sidebar is a folder TREE, which cannot be
+ * expressed as SidebarItem[], so before this it kept its own 258-line
+ * implementation — the exact divergence this component exists to end.
+ */
+describe('Sidebar children slot', () => {
+  const src = readFileSync(new URL('./Sidebar.tsx', import.meta.url), 'utf8');
+
+  it('accepts children in its props', () => {
+    expect(src).toMatch(/children\?: ReactNode/);
+  });
+
+  it('destructures children in the component', () => {
+    const body = src.slice(src.indexOf('export function Sidebar('));
+    expect(body.slice(0, 500)).toContain('children');
+  });
+
+  it('renders children OUTSIDE the nav element', () => {
+    // An app with richer navigation brings its own <nav> elements (stash has
+    // two). Nesting them would put landmarks inside landmarks. Scrolling is
+    // unaffected: overflow lives on .cloistr-sidebar, not .cloistr-sidebar-nav.
+    const nav = src.slice(src.indexOf('<nav'), src.indexOf('</nav>'));
+    expect(nav).not.toContain('{children}');
+    expect(src).toContain('{children}');
+  });
+
+  it('renders children after the item list, not instead of it', () => {
+    // An app may want both: standard items AND a tree.
+    expect(src.indexOf('</nav>')).toBeLessThan(src.indexOf('{children}'));
+  });
+
+  it('skips the nav landmark entirely when there are no items', () => {
+    // An empty <nav> is a landmark a screen-reader user steps through for
+    // nothing, which is the common case for a children-only sidebar.
+    expect(src).toContain('items.length > 0 &&');
   });
 });

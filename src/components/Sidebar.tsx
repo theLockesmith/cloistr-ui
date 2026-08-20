@@ -55,6 +55,37 @@ export interface SidebarProps {
   /** Compact branding for the collapsed rail; falls back to nothing. */
   collapsedHeader?: ReactNode;
   ariaLabel?: string;
+  /**
+   * DOM id for the root <aside>.
+   *
+   * An escape hatch, and a necessary one: apps adopting this component already
+   * have E2E specs and CSS keyed to their own selectors (stash targets
+   * #sidebar and .sidebar throughout). Without these the shell could only be
+   * adopted by rewriting every spec at the same time, which is how a shared
+   * component ends up adopted by nobody.
+   */
+  id?: string;
+  /** Extra classes on the root <aside>, alongside the cloistr-sidebar ones. */
+  className?: string;
+  /**
+   * Arbitrary navigation content, rendered after `items`.
+   *
+   * WHY THIS EXISTS
+   *
+   * `items` is a FLAT list, which covers mail (Inbox/Compose/Contacts/Settings)
+   * but not stash, whose sidebar is a folder TREE with expand/collapse plus
+   * special views. Stash therefore could not adopt this component at all and
+   * kept its own 258-line implementation — which is precisely the divergence
+   * this component exists to end.
+   *
+   * The shell is the valuable part: off-canvas drawer below `md`, icons-only
+   * rail above it, a z-index above the sticky header, a dismissable backdrop,
+   * and Escape-to-close. An app supplying its own interior still gets all of
+   * that, instead of re-deriving it and getting the z-index wrong again.
+   *
+   * Pass an empty `items` array to use children exclusively.
+   */
+  children?: ReactNode;
 }
 
 /**
@@ -138,6 +169,9 @@ export function Sidebar({
   header,
   collapsedHeader,
   ariaLabel = 'Navigation',
+  id,
+  className,
+  children,
 }: SidebarProps) {
   // Escape closes the mobile drawer. Without it the only ways out are the
   // backdrop and the close button, which is poor for keyboard and screen-reader
@@ -164,7 +198,11 @@ export function Sidebar({
         />
       )}
 
-      <aside className={classes} aria-label={ariaLabel}>
+      <aside
+        id={id}
+        className={className ? `${classes} ${className}` : classes}
+        aria-label={ariaLabel}
+      >
         <div className="cloistr-sidebar-header">
           {collapsed ? (collapsedHeader ?? null) : header}
 
@@ -180,6 +218,9 @@ export function Sidebar({
           </button>
         </div>
 
+        {/* Skipped entirely when an app supplies only children — an empty <nav>
+            is a landmark a screen-reader user has to step through for nothing. */}
+        {items.length > 0 && (
         <nav className="cloistr-sidebar-nav">
           <ul>
             {items.map((item) => {
@@ -226,6 +267,14 @@ export function Sidebar({
             })}
           </ul>
         </nav>
+        )}
+
+        {/* App-supplied navigation — stash's folder tree, for example.
+            OUTSIDE <nav> on purpose: an app with richer navigation brings its
+            own <nav> elements, and nesting them would produce landmarks inside
+            landmarks. Scrolling is unaffected because the overflow lives on
+            .cloistr-sidebar itself, not on .cloistr-sidebar-nav. */}
+        {children}
 
         {/* Desktop-only collapse control. Rendered only when the app opts in by
             passing a handler — an app with no persistence for it should not show
