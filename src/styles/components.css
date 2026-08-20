@@ -1259,14 +1259,6 @@
   .cloistr-sidebar--collapsed .cloistr-sidebar-item {
     justify-content: center;
   }
-  /* The close control is a mobile affordance; the rail is never dismissed
-     entirely on desktop. */
-  .cloistr-sidebar-close {
-    display: none;
-  }
-  .cloistr-sidebar-toggle {
-    display: none;
-  }
 }
 
 .cloistr-sidebar-backdrop {
@@ -1313,6 +1305,21 @@
 .cloistr-sidebar-toggle:hover {
   color: var(--cloistr-text);
   background: var(--cloistr-bg-hover);
+}
+
+/* Mobile-only affordances, hidden on desktop.
+   MUST come AFTER the base `display: inline-flex` above. These rules used to
+   live in the earlier @media (min-width: 768px) block, where they lost to the
+   later unscoped declaration at equal specificity — so on desktop the close
+   (X) and hamburger both RENDERED but did nothing, because they toggle the
+   mobile drawer state and the rail is in flow at that width. Reported as
+   "an 'x' that doesn't do anything as well as the hamburger icon that also
+   doesn't do anything". Source order is the whole fix. */
+@media (min-width: 768px) {
+  .cloistr-sidebar-close,
+  .cloistr-sidebar-toggle {
+    display: none;
+  }
 }
 
 .cloistr-sidebar-nav {
