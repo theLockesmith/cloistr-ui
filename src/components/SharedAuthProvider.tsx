@@ -32,6 +32,31 @@ import {
 import { useKeySwitcherBootstrap } from '../lib/keySwitcher.js';
 import { AuthRestoreGate } from './AuthRestoreGate.js';
 
+/**
+ * Backstop for a genuinely hung SSO restore.
+ *
+ * DERIVED, not picked. The NIP-46 restore is TWO sequential relay handshakes:
+ * bootstrapKeys → startNostrConnect waits up to CONNECT_TIMEOUT_MS (10s), and
+ * the ack then triggers a second connectNip46 round-trip with the same ceiling.
+ * The real worst case is therefore ~20s before anything has gone wrong.
+ *
+ * This was 12000, which is BELOW that ceiling — so on a slow or mobile network
+ * the backstop fired mid-handshake and flipped the app to logged-out while a
+ * perfectly valid session was still resolving. The comment beside it already
+ * said the cap "must sit ABOVE the NIP-46 relay handshake ceiling"; the value
+ * simply did not honour it.
+ *
+ * Measured on stash: "Connecting to your account…" at 8s and 16s, then the
+ * signed-out landing page at 26s, on a valid session. Reported as logins not
+ * persisting and as apps refusing a session established elsewhere.
+ *
+ * 30s = the 20s handshake ceiling plus margin, and matches @cloistr/auth's
+ * BASE_TIMEOUT_MS for a NIP-46 request. The happy path never waits this long:
+ * attemptAutoConnect's finally releases the gate as soon as bootstrapKeys
+ * settles, success or failure. This only bounds a hang.
+ */
+const SSO_SAFETY_CAP_MS = 30000;
+
 export interface SharedAuthProviderProps {
   children: ReactNode;
   /**
@@ -246,7 +271,7 @@ function SessionSyncInner({
     // — the intermittent false-logout seen on cross-subdomain app-switch. The
     // happy path never waits this long: attemptAutoConnect's finally releases
     // the gate the moment bootstrapKeys settles (success or failure).
-    const safety = setTimeout(() => setIsResolving(false), 12000);
+    const safety = setTimeout(() => setIsResolving(false), SSO_SAFETY_CAP_MS);
     return () => {
       clearTimeout(timeout);
       clearTimeout(safety);
