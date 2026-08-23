@@ -9,10 +9,14 @@
   --cloistr-primary-light: #a78bfa;
   --cloistr-primary-dark: #5b21b6;
   /* Foreground colour for text/icons rendered ON a --cloistr-primary background.
-     #7c3aed has a relative luminance of ~0.09, giving a contrast ratio of ~9:1
-     against white — well above the WCAG AA threshold of 4.5:1. Both the dark
-     default and the explicit light overrides leave --cloistr-primary unchanged,
-     so a single white definition covers every theme variant. */
+     #7c3aed has a WCAG relative luminance of 0.1343, giving a contrast ratio of
+     5.70:1 against white. That clears WCAG AA for normal text (4.5:1) but does
+     NOT reach AAA (7:1), so do not rely on this pairing for AAA claims.
+     Both the dark default and the explicit light overrides leave
+     --cloistr-primary unchanged, so a single white definition covers every
+     theme variant. The exact ratio is recomputed by a test rather than trusted
+     from this comment, because an earlier version of this note asserted ~9:1
+     and was simply wrong. */
   --cloistr-primary-fg: #ffffff;
 
   /* Semantic colors */

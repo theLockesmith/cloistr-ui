@@ -18,7 +18,8 @@
  * test is actually proving.
  */
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { buttonClasses, type ButtonVariant } from './Button.js';
 
@@ -115,10 +116,45 @@ describe('--cloistr-primary-fg token', () => {
     expect(VARS).toContain('--cloistr-primary-fg');
   });
 
-  it('is set to white in the root (readable on #7c3aed)', () => {
-    // #7c3aed has relative luminance ~0.09 → contrast against #ffffff is ~9:1,
-    // exceeding WCAG AA (4.5:1) for normal text and AAA (7:1) for large text.
+  it('is set to white in the root', () => {
     expect(VARS).toContain('--cloistr-primary-fg: #ffffff');
+  });
+
+  it('actually clears WCAG AA against --cloistr-primary', () => {
+    // COMPUTED, not asserted in a comment. A previous version of this file
+    // claimed "~9:1" for this pairing and was wrong by roughly 60%: the real
+    // ratio is 5.70:1. A hand-written number in a comment cannot fail, so the
+    // ratio is derived from the tokens themselves and checked here.
+    const hexOf = (name: string) => {
+      const m = VARS.match(new RegExp(`${name}:\\s*(#[0-9a-fA-F]{6})`));
+      if (!m) throw new Error(`token ${name} not found in variables.css`);
+      return m[1];
+    };
+
+    // WCAG 2.x relative luminance.
+    const luminance = (hex: string) => {
+      const channel = (v: number) => {
+        const s = v / 255;
+        return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+      };
+      const r = channel(parseInt(hex.slice(1, 3), 16));
+      const g = channel(parseInt(hex.slice(3, 5), 16));
+      const b = channel(parseInt(hex.slice(5, 7), 16));
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+
+    const bg = luminance(hexOf('--cloistr-primary'));
+    const fg = luminance(hexOf('--cloistr-primary-fg'));
+    const ratio = (Math.max(bg, fg) + 0.05) / (Math.min(bg, fg) + 0.05);
+
+    // AA for normal text. If someone darkens --cloistr-primary this still
+    // passes; if they lighten it toward white, this fails and the token needs
+    // a dark foreground instead.
+    expect(ratio).toBeGreaterThanOrEqual(4.5);
+
+    // Pin the current value so a token change is a deliberate, visible edit
+    // rather than a silent drift.
+    expect(ratio).toBeCloseTo(5.7, 1);
   });
 
   it('is not overridden in the light theme block', () => {
@@ -133,11 +169,31 @@ describe('--cloistr-primary-fg token', () => {
 
 // --- 100dvh SWEEP ------------------------------------------------------------
 
-describe('100vh sweep in components.css', () => {
-  it('has no remaining 100vh occurrences', () => {
-    // Mobile browsers show/hide their URL bar, shrinking the viewport below
-    // what 100vh resolves to at initial load — clipping bottom content. 100dvh
-    // tracks the DYNAMIC viewport height and always matches the visible area.
-    expect(CSS).not.toContain('100vh');
+describe('100dvh sweep across the whole package', () => {
+  // Mobile browsers show and hide their URL bar, shrinking the viewport below
+  // what 100vh resolves to at initial load, which clips bottom content. 100dvh
+  // tracks the DYNAMIC viewport height and always matches the visible area.
+  //
+  // This scans EVERY source file, not just components.css. The first version of
+  // this test only read components.css, so it passed while an inline
+  // `minHeight: '100vh'` survived in AuthRestoreGate.tsx — the full-screen auth
+  // gate, which is exactly the kind of element the bug ruins on a phone.
+  const SRC = join(__dirname, '..');
+
+  const walk = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) return entry.name === 'node_modules' ? [] : walk(path);
+      return /\.(ts|tsx|css)$/.test(entry.name) ? [path] : [];
+    });
+
+  it('has no remaining 100vh occurrences in any source file', () => {
+    const offenders = walk(SRC)
+      // This file necessarily contains the literal it is searching for.
+      .filter((path) => !path.endsWith('Button.test.ts'))
+      .filter((path) => /\b100vh\b/.test(readFileSync(path, 'utf8')))
+      .map((path) => path.slice(SRC.length + 1));
+
+    expect(offenders, `100vh still present in: ${offenders.join(', ')}`).toEqual([]);
   });
 });

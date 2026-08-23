@@ -39,7 +39,10 @@ export function AuthRestoreGate({ error }: AuthRestoreGateProps) {
       aria-busy={!error}
       role="status"
       style={{
-        minHeight: '100vh',
+        // Dynamic viewport height. Mobile browsers shrink the visible area when
+        // the URL bar appears, so a static viewport unit makes this full-screen
+        // gate overflow and push its own content off-screen on a phone.
+        minHeight: '100dvh',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
