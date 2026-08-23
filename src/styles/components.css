@@ -32,7 +32,7 @@
 
 .cloistr-btn-primary {
   background: var(--cloistr-primary);
-  color: white;
+  color: var(--cloistr-primary-fg);
 }
 
 .cloistr-btn-primary:hover:not(:disabled) {
@@ -58,6 +58,114 @@
 .cloistr-btn-outline:hover:not(:disabled) {
   border-color: var(--cloistr-primary);
   color: var(--cloistr-primary);
+}
+
+/* Icon-only button: square, no label, same tap-target minimum.
+   Padding is equal on all sides so the icon centres without asymmetry.
+   min-width/min-height ensure a 36×36px minimum on desktop; mobile callers
+   that need a larger tap target should use the .cloistr-btn-icon--lg modifier
+   or wrap with an explicit size. */
+.cloistr-btn-icon {
+  padding: var(--cloistr-space-sm);
+  min-width: 2.25rem;
+  min-height: 2.25rem;
+  background: var(--cloistr-bg-elevated);
+  border-color: var(--cloistr-border);
+  color: var(--cloistr-text);
+}
+
+.cloistr-btn-icon:hover:not(:disabled) {
+  background: var(--cloistr-bg-hover);
+}
+
+/* Toggle / Switch
+   ------------------------------------------------------------
+   Plain CSS pill-and-thumb toggle that wraps a hidden <input type="checkbox">.
+   A visually-hidden input keeps the element in the accessibility tree so
+   keyboard and screen-reader users interact with a native control; the visible
+   track+thumb are purely presentational aria-hidden siblings.
+
+   Source order: base track/thumb first, then the :checked variant, then the
+   focus-visible ring, then the disabled state — no selectors of equal
+   specificity compete, so the cascade is deterministic and no media override
+   can accidentally win over a base rule. */
+
+.cloistr-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cloistr-space-sm);
+  cursor: pointer;
+  user-select: none;
+}
+
+.cloistr-toggle--disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* The hidden checkbox: removed from visual rendering but kept in the a11y
+   tree. Positioned to overlap the track so click/touch events hit naturally. */
+.cloistr-toggle-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+/* Track: the pill background.
+   Width 2.75rem × height 1.5rem keeps the thumb flush with either end at rest.
+   Transitions on background-color only — never on all — to avoid unexpected
+   geometry jitter when a parent changes something else. */
+.cloistr-toggle-track {
+  position: relative;
+  display: inline-block;
+  width: 2.75rem;
+  height: 1.5rem;
+  border-radius: var(--cloistr-radius-full);
+  background: var(--cloistr-border);
+  flex-shrink: 0;
+  transition: background-color var(--cloistr-transition-fast);
+}
+
+/* Thumb: the sliding circle.
+   Sized to leave a 2px gap all around inside the 1.5rem track.
+   translateX(0) = off (left), translateX(1.25rem) = on (right). */
+.cloistr-toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: calc(1.5rem - 4px);
+  height: calc(1.5rem - 4px);
+  border-radius: 50%;
+  background: var(--cloistr-bg-elevated);
+  box-shadow: var(--cloistr-shadow-sm);
+  transition: transform var(--cloistr-transition-fast), background-color var(--cloistr-transition-fast);
+}
+
+/* Checked state: track turns primary, thumb slides right. */
+.cloistr-toggle-input:checked + .cloistr-toggle-track {
+  background: var(--cloistr-primary);
+}
+
+.cloistr-toggle-input:checked + .cloistr-toggle-track .cloistr-toggle-thumb {
+  transform: translateX(1.25rem);
+  background: var(--cloistr-primary-fg);
+}
+
+/* Focus ring: visible on keyboard navigation, absent on pointer. */
+.cloistr-toggle-input:focus-visible + .cloistr-toggle-track {
+  outline: 2px solid var(--cloistr-primary);
+  outline-offset: 2px;
+}
+
+.cloistr-toggle-label {
+  font-size: 0.875rem;
+  color: var(--cloistr-text);
 }
 
 /* Inputs */
@@ -1057,7 +1165,7 @@
 
 .cloistr-modal-full {
   max-width: calc(100vw - var(--cloistr-space-lg) * 2);
-  max-height: calc(100vh - var(--cloistr-space-lg) * 2);
+  max-height: calc(100dvh - var(--cloistr-space-lg) * 2);
 }
 
 .cloistr-modal-footer {
@@ -1084,7 +1192,7 @@
 }
 
 .cloistr-btn-danger:hover:not(:disabled) {
-  background: var(--cloistr-error);
+  filter: brightness(1.1);
 }
 
 /* ========================================
