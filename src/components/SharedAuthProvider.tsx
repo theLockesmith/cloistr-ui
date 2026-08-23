@@ -30,6 +30,7 @@ import {
   type SharedSession,
 } from '../lib/session.js';
 import { useKeySwitcherBootstrap } from '../lib/keySwitcher.js';
+import { useRelayReconnect } from '../lib/useRelayReconnect.js';
 import { AuthRestoreGate } from './AuthRestoreGate.js';
 
 /**
@@ -149,6 +150,12 @@ function SessionSyncInner({
   const { isAuthenticated } = useAuthHelpers();
   const autoConnectAttempted = useRef(false);
   const prevConnectedRef = useRef(authState.isConnected);
+
+  // Part 4 of the signer-resilience design: reconnect relay WebSockets when
+  // the page regains visibility (phone app-switcher, file picker, screen lock)
+  // or the network comes back online — before the user next acts. Apps using
+  // SharedAuthProvider get this automatically with no extra mount required.
+  useRelayReconnect();
 
   // All multi-identity / cookie / cross-tab logic lives here.
   const {

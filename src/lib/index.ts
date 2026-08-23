@@ -51,3 +51,6 @@ export {
   TERMINAL_CODES,
 } from './signerRetry.js';
 export type { SignerFailureKind, SignerRetryOptions } from './signerRetry.js';
+
+export { useRelayReconnect } from './useRelayReconnect.js';
+export type { RelayReconnectOptions } from './useRelayReconnect.js';
