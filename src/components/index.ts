@@ -1,3 +1,9 @@
+export { Button, buttonClasses } from './Button.js';
+export type { ButtonProps, ButtonVariant } from './Button.js';
+
+export { Toggle, toggleClasses } from './Toggle.js';
+export type { ToggleProps } from './Toggle.js';
+
 export { Header } from './Header.js';
 export type { HeaderProps } from './Header.js';
 
