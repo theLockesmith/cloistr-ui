@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { SidebarToggle } from './Sidebar.js';
 
 /**
@@ -134,6 +134,32 @@ export function menuItemState(item: MenuItem): {
   return { disabled, title: disabled ? item.disabledReason : undefined };
 }
 
+/**
+ * Roving-index step for keyboard menu navigation.
+ *
+ * Extracted pure because the wrapping is where these go wrong, and because
+ * docs' own MenuBar implemented arrow-key navigation that would otherwise be
+ * lost when it is replaced by the shell. Returns the new index, or -1 for keys
+ * that do not move the selection.
+ */
+export function nextMenuIndex(current: number, count: number, key: string): number {
+  if (count <= 0) return -1;
+  switch (key) {
+    case 'ArrowRight':
+    case 'ArrowDown':
+      return (current + 1) % count;
+    case 'ArrowLeft':
+    case 'ArrowUp':
+      return (current - 1 + count) % count;
+    case 'Home':
+      return 0;
+    case 'End':
+      return count - 1;
+    default:
+      return -1;
+  }
+}
+
 /** True when the viewport is below the mobile breakpoint. */
 export function useIsMobile(breakpoint = APPSHELL_BREAKPOINT): boolean {
   const query = `(min-width: ${breakpoint}px)`;
@@ -202,6 +228,7 @@ function MenuEntries({ entries, onDone }: { entries: MenuEntry[]; onDone: () => 
 /** Desktop presentation: a horizontal bar of dropdowns. */
 function MenuBar({ sections }: { sections: MenuSection[] }) {
   const [openLabel, setOpenLabel] = useState<string | null>(null);
+  const triggers = useRef<(HTMLButtonElement | null)[]>([]);
 
   useEffect(() => {
     if (!openLabel) return;
@@ -212,15 +239,30 @@ function MenuBar({ sections }: { sections: MenuSection[] }) {
     return () => document.removeEventListener('keydown', onKey);
   }, [openLabel]);
 
+  // Arrow keys move between top-level menus, matching what docs' own MenuBar
+  // did before the shell replaced it.
+  const onTriggerKeyDown = (e: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
+    const next = nextMenuIndex(index, sections.length, e.key);
+    if (next < 0) return;
+    e.preventDefault();
+    triggers.current[next]?.focus();
+    // Keep the open menu following the focus, as a menubar should.
+    if (openLabel) setOpenLabel(sections[next].label);
+  };
+
   return (
     <div className="cloistr-appshell-menubar" role="menubar" aria-label="Application menu">
-      {sections.map((section) => (
+      {sections.map((section, index) => (
         <div className="cloistr-appshell-menubar-section" key={section.label}>
           <button
             type="button"
+            ref={(el) => {
+              triggers.current[index] = el;
+            }}
             className="cloistr-appshell-menubar-trigger"
             aria-haspopup="true"
             aria-expanded={openLabel === section.label}
+            onKeyDown={(e) => onTriggerKeyDown(e, index)}
             onClick={() => setOpenLabel((cur) => (cur === section.label ? null : section.label))}
           >
             {section.label}

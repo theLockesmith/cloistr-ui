@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it, expect } from 'vitest';
-import { appShellChrome, menuItemState, isSeparator, APPSHELL_BREAKPOINT } from './AppShell.js';
+import { appShellChrome, menuItemState, isSeparator, nextMenuIndex, APPSHELL_BREAKPOINT } from './AppShell.js';
 
 /**
  * AppShell encodes architecture/navigation-model.md. The decisions live in pure
@@ -120,6 +120,41 @@ describe('menuItemState with toggle items', () => {
       disabled: false,
       title: undefined,
     });
+  });
+});
+
+describe('nextMenuIndex', () => {
+  // Wrapping is where roving-index navigation goes wrong, and docs' own MenuBar
+  // implemented arrow keys that must not be lost when the shell replaces it.
+  it('moves forward and wraps at the end', () => {
+    expect(nextMenuIndex(0, 3, 'ArrowRight')).toBe(1);
+    expect(nextMenuIndex(2, 3, 'ArrowRight')).toBe(0);
+  });
+
+  it('moves backward and wraps at the start', () => {
+    expect(nextMenuIndex(2, 3, 'ArrowLeft')).toBe(1);
+    expect(nextMenuIndex(0, 3, 'ArrowLeft')).toBe(2);
+  });
+
+  it('treats Down/Up the same as Right/Left', () => {
+    expect(nextMenuIndex(0, 3, 'ArrowDown')).toBe(1);
+    expect(nextMenuIndex(0, 3, 'ArrowUp')).toBe(2);
+  });
+
+  it('jumps to first and last', () => {
+    expect(nextMenuIndex(1, 4, 'Home')).toBe(0);
+    expect(nextMenuIndex(1, 4, 'End')).toBe(3);
+  });
+
+  it('returns -1 for keys that do not navigate, so they are not swallowed', () => {
+    // Returning 0 here would hijack Enter, Tab and every printable character.
+    for (const k of ['Enter', 'Tab', 'a', 'Escape', ' ']) {
+      expect(nextMenuIndex(1, 3, k)).toBe(-1);
+    }
+  });
+
+  it('returns -1 when there are no sections', () => {
+    expect(nextMenuIndex(0, 0, 'ArrowRight')).toBe(-1);
   });
 });
 
