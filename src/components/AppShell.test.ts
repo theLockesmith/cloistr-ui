@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it, expect } from 'vitest';
-import { appShellChrome, menuItemState, APPSHELL_BREAKPOINT } from './AppShell.js';
+import { appShellChrome, menuItemState, isSeparator, nextMenuIndex, APPSHELL_BREAKPOINT } from './AppShell.js';
 
 /**
  * AppShell encodes architecture/navigation-model.md. The decisions live in pure
@@ -88,6 +88,76 @@ describe('menuItemState', () => {
   });
 });
 
+describe('isSeparator', () => {
+  // Real menus group their items. An app that cannot express a rule in the
+  // shared model keeps its own renderer to get one, which is how docs ended up
+  // with a second, mobile-only menu implementation beside the shared bar.
+  it('recognises a separator entry', () => {
+    expect(isSeparator({ separator: true })).toBe(true);
+  });
+
+  it('does not mistake an item for a separator', () => {
+    expect(isSeparator({ label: 'New', onSelect: () => {} })).toBe(false);
+  });
+
+  it('does not mistake a disabled item for a separator', () => {
+    expect(isSeparator({ label: 'Publish' })).toBe(false);
+  });
+});
+
+describe('menuItemState with toggle items', () => {
+  // Toggle items (Bold, Italic) must still be enabled when active. Treating
+  // `active` as a disable signal would silently break every format menu.
+  it('an active toggle with onSelect is enabled', () => {
+    expect(menuItemState({ label: 'Bold', onSelect: () => {}, active: true })).toEqual({
+      disabled: false,
+      title: undefined,
+    });
+  });
+
+  it('an inactive toggle with onSelect is enabled', () => {
+    expect(menuItemState({ label: 'Bold', onSelect: () => {}, active: false })).toEqual({
+      disabled: false,
+      title: undefined,
+    });
+  });
+});
+
+describe('nextMenuIndex', () => {
+  // Wrapping is where roving-index navigation goes wrong, and docs' own MenuBar
+  // implemented arrow keys that must not be lost when the shell replaces it.
+  it('moves forward and wraps at the end', () => {
+    expect(nextMenuIndex(0, 3, 'ArrowRight')).toBe(1);
+    expect(nextMenuIndex(2, 3, 'ArrowRight')).toBe(0);
+  });
+
+  it('moves backward and wraps at the start', () => {
+    expect(nextMenuIndex(2, 3, 'ArrowLeft')).toBe(1);
+    expect(nextMenuIndex(0, 3, 'ArrowLeft')).toBe(2);
+  });
+
+  it('treats Down/Up the same as Right/Left', () => {
+    expect(nextMenuIndex(0, 3, 'ArrowDown')).toBe(1);
+    expect(nextMenuIndex(0, 3, 'ArrowUp')).toBe(2);
+  });
+
+  it('jumps to first and last', () => {
+    expect(nextMenuIndex(1, 4, 'Home')).toBe(0);
+    expect(nextMenuIndex(1, 4, 'End')).toBe(3);
+  });
+
+  it('returns -1 for keys that do not navigate, so they are not swallowed', () => {
+    // Returning 0 here would hijack Enter, Tab and every printable character.
+    for (const k of ['Enter', 'Tab', 'a', 'Escape', ' ']) {
+      expect(nextMenuIndex(1, 3, k)).toBe(-1);
+    }
+  });
+
+  it('returns -1 when there are no sections', () => {
+    expect(nextMenuIndex(0, 0, 'ArrowRight')).toBe(-1);
+  });
+});
+
 describe('AppShell styles', () => {
   const css = () => readFileSync(resolve(process.cwd(), 'src/styles/components.css'), 'utf8');
 
@@ -121,6 +191,11 @@ describe('AppShell styles', () => {
     const rule = /\.cloistr-appshell\s*\{([^}]*)\}/.exec(css());
     expect(rule).toBeTruthy();
     expect(rule![1]).toMatch(/100dvh/);
+  });
+
+  it('styles the separator as a visible rule', () => {
+    const rule = /\.cloistr-appshell-menu-separator\s*\{([^}]*)\}/.exec(css());
+    expect(rule, 'separator has no style, so grouping would be invisible').toBeTruthy();
   });
 
   it('paints the drawer ABOVE the scrim, and the scrim above the page', () => {
