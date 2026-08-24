@@ -1728,3 +1728,17 @@
   border-radius: var(--cloistr-radius-sm);
 }
 .cloistr-appshell-drawer-section-trigger:hover { background: var(--cloistr-bg-hover); }
+
+/* Menu grouping and toggle state. Without a shared way to express these, apps
+   keep their own menu renderer just to draw a rule or a checkmark — which is
+   how docs ended up with a second, mobile-only menu implementation. */
+.cloistr-appshell-menu-separator {
+  height: 1px;
+  margin: var(--cloistr-space-xs) 0;
+  background: var(--cloistr-border);
+}
+.cloistr-appshell-menuitem-check {
+  flex: 0 0 1em;
+  text-align: center;
+  color: var(--cloistr-primary);
+}

@@ -54,12 +54,33 @@ export interface MenuItem {
   shortcut?: string;
   /** Shown when there is no onSelect, so a disabled item explains itself. */
   disabledReason?: string;
+  /**
+   * Toggle-style items (Bold, Italic, a view mode) render a checkmark when on.
+   * Without this apps keep their own menu renderer just to show state, which is
+   * how docs ended up with a second, mobile-only menu implementation.
+   */
+  active?: boolean;
+}
+
+/**
+ * A rule between groups of items. Real menus group ("Undo/Redo" apart from
+ * "Cut/Copy/Paste"), and an app that cannot express that in the shared model
+ * keeps its own renderer instead.
+ */
+export interface MenuSeparator {
+  separator: true;
+}
+
+export type MenuEntry = MenuItem | MenuSeparator;
+
+export function isSeparator(entry: MenuEntry): entry is MenuSeparator {
+  return 'separator' in entry && entry.separator === true;
 }
 
 export interface MenuSection {
   /** e.g. "File" */
   label: string;
-  items: MenuItem[];
+  items: MenuEntry[];
 }
 
 export interface AppShellProps {
@@ -140,22 +161,41 @@ function MenuItemButton({ item, onDone }: { item: MenuItem; onDone: () => void }
   return (
     <button
       type="button"
-      role="menuitem"
+      role={item.active === undefined ? 'menuitem' : 'menuitemcheckbox'}
       className="cloistr-appshell-menuitem"
       disabled={disabled}
       title={title}
       aria-disabled={disabled || undefined}
+      aria-checked={item.active === undefined ? undefined : item.active}
       onClick={() => {
         if (!item.onSelect) return;
         item.onSelect();
         onDone();
       }}
     >
+      <span className="cloistr-appshell-menuitem-check" aria-hidden="true">
+        {item.active ? '\u2713' : ''}
+      </span>
       <span className="cloistr-appshell-menuitem-label">{item.label}</span>
       {item.shortcut ? (
         <span className="cloistr-appshell-menuitem-shortcut">{item.shortcut}</span>
       ) : null}
     </button>
+  );
+}
+
+/** Render one section's entries, turning separators into real rules. */
+function MenuEntries({ entries, onDone }: { entries: MenuEntry[]; onDone: () => void }) {
+  return (
+    <>
+      {entries.map((entry, i) =>
+        isSeparator(entry) ? (
+          <div key={`sep-${i}`} className="cloistr-appshell-menu-separator" role="separator" />
+        ) : (
+          <MenuItemButton key={entry.label} item={entry} onDone={onDone} />
+        ),
+      )}
+    </>
   );
 }
 
@@ -187,9 +227,7 @@ function MenuBar({ sections }: { sections: MenuSection[] }) {
           </button>
           {openLabel === section.label ? (
             <div className="cloistr-appshell-dropdown" role="menu" aria-label={section.label}>
-              {section.items.map((item) => (
-                <MenuItemButton key={item.label} item={item} onDone={() => setOpenLabel(null)} />
-              ))}
+              <MenuEntries entries={section.items} onDone={() => setOpenLabel(null)} />
             </div>
           ) : null}
         </div>
@@ -215,9 +253,7 @@ function DrawerMenu({ sections, onDone }: { sections: MenuSection[]; onDone: () 
           </button>
           {openLabel === section.label ? (
             <div role="menu" aria-label={section.label}>
-              {section.items.map((item) => (
-                <MenuItemButton key={item.label} item={item} onDone={onDone} />
-              ))}
+              <MenuEntries entries={section.items} onDone={onDone} />
             </div>
           ) : null}
         </div>
