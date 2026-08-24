@@ -36,6 +36,51 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 const STORAGE_KEY = 'cloistr-theme';
 
+/**
+ * Theme is shared across every *.cloistr.xyz app via a cookie, NOT localStorage.
+ *
+ * localStorage is per-ORIGIN, so docs.cloistr.xyz and sheets.cloistr.xyz each
+ * kept their own copy and a theme change in one app was invisible in every
+ * other. This mirrors how SSO already shares auth state in src/lib/session.ts:
+ * a cookie scoped to the parent domain is the one mechanism the browser will
+ * carry between subdomains.
+ *
+ * localStorage is still written as a same-origin fast path so the first paint
+ * does not flash before the cookie is read, but the COOKIE IS AUTHORITATIVE and
+ * is read first.
+ */
+const COOKIE_MAX_AGE = 60 * 60 * 24 * 365; // 1 year
+
+function readCookieTheme(): ThemeMode | null {
+  if (typeof document === 'undefined') return null;
+  const match = document.cookie.match(/(?:^|;\s*)cloistr-theme=([^;]*)/);
+  if (!match) return null;
+  const v = decodeURIComponent(match[1]);
+  return v === 'light' || v === 'dark' || v === 'system' ? v : null;
+}
+
+function writeTheme(mode: ThemeMode): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(STORAGE_KEY, mode);
+  } catch {
+    // localStorage can throw in a private window or with site data blocked.
+    // The cookie below is what actually matters, so keep going.
+  }
+  try {
+    // Not HttpOnly: the client must read it. SameSite=Lax is enough because a
+    // theme preference is not a credential. On a non-cloistr host (local dev,
+    // preview) the domain attribute is omitted so the cookie still applies.
+    const onCloistr =
+      typeof location !== 'undefined' && location.hostname.endsWith('cloistr.xyz');
+    const domain = onCloistr ? '; domain=.cloistr.xyz' : '';
+    const secure = typeof location !== 'undefined' && location.protocol === 'https:' ? '; secure' : '';
+    document.cookie = `${STORAGE_KEY}=${encodeURIComponent(mode)}${domain}; path=/; max-age=${COOKIE_MAX_AGE}; samesite=lax${secure}`;
+  } catch {
+    // Cookies unavailable; the localStorage write above still covers this app.
+  }
+}
+
 function systemPrefersDark(): boolean {
   if (typeof window === 'undefined' || !window.matchMedia) return true; // dark-first default
   return !window.matchMedia('(prefers-color-scheme: light)').matches;
@@ -43,8 +88,15 @@ function systemPrefersDark(): boolean {
 
 function readStored(): ThemeMode {
   if (typeof window === 'undefined') return 'system';
-  const v = window.localStorage.getItem(STORAGE_KEY);
-  return v === 'light' || v === 'dark' || v === 'system' ? v : 'system';
+  // Cookie first: it is the cross-subdomain source of truth.
+  const shared = readCookieTheme();
+  if (shared) return shared;
+  try {
+    const v = window.localStorage.getItem(STORAGE_KEY);
+    return v === 'light' || v === 'dark' || v === 'system' ? v : 'system';
+  } catch {
+    return 'system';
+  }
 }
 
 function applyTheme(mode: ThemeMode): 'light' | 'dark' {
@@ -89,14 +141,14 @@ export function ThemeProvider({ children, defaultTheme = 'system' }: ThemeProvid
   }, [theme]);
 
   const setTheme = useCallback((mode: ThemeMode) => {
-    if (typeof window !== 'undefined') window.localStorage.setItem(STORAGE_KEY, mode);
+    writeTheme(mode);
     setThemeState(mode);
   }, []);
 
   const toggleTheme = useCallback(() => {
     setThemeState((prev) => {
       const next: ThemeMode = prev === 'light' ? 'dark' : prev === 'dark' ? 'system' : 'light';
-      if (typeof window !== 'undefined') window.localStorage.setItem(STORAGE_KEY, next);
+      writeTheme(next);
       return next;
     });
   }, []);
