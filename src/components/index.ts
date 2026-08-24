@@ -56,3 +56,6 @@ export { ThemeProvider, useTheme, useThemeOptional } from './ThemeProvider.js';
 export type { ThemeProviderProps, ThemeContextValue, ThemeMode } from './ThemeProvider.js';
 export { ThemeToggle } from './ThemeToggle.js';
 export type { ThemeToggleProps } from './ThemeToggle.js';
+
+export { AppShell, appShellChrome, menuItemState, useIsMobile, APPSHELL_BREAKPOINT } from './AppShell.js';
+export type { AppShellProps, MenuSection, MenuItem } from './AppShell.js';
