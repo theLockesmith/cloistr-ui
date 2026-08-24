@@ -413,3 +413,146 @@
   background: var(--cloistr-bg-hover);
   color: var(--cloistr-primary-light);
 }
+
+/* ── AppShell ──────────────────────────────────────────────────────────────
+   The shared application chrome. See architecture/navigation-model.md.
+
+   Desktop: sidebar + menu bar, NO hamburger.
+   Mobile:  exactly ONE hamburger, in the shared header, opening one drawer.
+
+   Three apps shipped their own hamburger at 31, 36 and 36px tall, all under
+   the 44x44 tap minimum, none in the shared header (audit 2026-08-24). The
+   min-width/min-height below are load-bearing, not decoration.
+*/
+.cloistr-appshell {
+  display: flex;
+  flex-direction: column;
+  /* 100dvh, not 100vh: the mobile URL bar clips 100vh. */
+  min-height: 100dvh;
+}
+
+.cloistr-appshell-hamburger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: var(--cloistr-space-sm);
+  background: transparent;
+  border: none;
+  border-radius: var(--cloistr-radius-md);
+  color: var(--cloistr-text);
+  cursor: pointer;
+  transition: background var(--cloistr-transition-fast);
+}
+.cloistr-appshell-hamburger:hover { background: var(--cloistr-bg-hover); }
+
+.cloistr-appshell-body { display: flex; flex: 1; min-height: 0; }
+
+.cloistr-appshell-sidebar {
+  flex: 0 0 auto;
+  border-right: 1px solid var(--cloistr-border);
+  background: var(--cloistr-bg-elevated);
+  overflow-y: auto;
+}
+
+.cloistr-appshell-content { flex: 1; min-width: 0; overflow: auto; }
+
+/* Desktop menu bar */
+.cloistr-appshell-menubar {
+  display: flex;
+  align-items: center;
+  gap: var(--cloistr-space-xs);
+  padding: 0 var(--cloistr-space-sm);
+  border-bottom: 1px solid var(--cloistr-border);
+  background: var(--cloistr-bg-elevated);
+}
+.cloistr-appshell-menubar-section { position: relative; }
+.cloistr-appshell-menubar-trigger {
+  padding: var(--cloistr-space-sm) var(--cloistr-space-md);
+  background: transparent;
+  border: none;
+  color: var(--cloistr-text);
+  font-family: var(--cloistr-font-sans);
+  cursor: pointer;
+  border-radius: var(--cloistr-radius-sm);
+}
+.cloistr-appshell-menubar-trigger:hover { background: var(--cloistr-bg-hover); }
+
+.cloistr-appshell-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  min-width: 220px;
+  padding: var(--cloistr-space-xs);
+  background: var(--cloistr-bg-elevated);
+  border: 1px solid var(--cloistr-border);
+  border-radius: var(--cloistr-radius-md);
+  box-shadow: var(--cloistr-shadow-md);
+  /* Must sit ABOVE app chrome: the sheets menu bar used to cover this. */
+  z-index: var(--cloistr-z-dropdown);
+}
+
+.cloistr-appshell-menuitem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cloistr-space-lg);
+  width: 100%;
+  min-height: 44px;
+  padding: var(--cloistr-space-sm) var(--cloistr-space-md);
+  background: transparent;
+  border: none;
+  color: var(--cloistr-text);
+  font-family: var(--cloistr-font-sans);
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--cloistr-radius-sm);
+}
+.cloistr-appshell-menuitem:hover:not(:disabled) { background: var(--cloistr-bg-hover); }
+.cloistr-appshell-menuitem:disabled {
+  color: var(--cloistr-text-muted);
+  cursor: not-allowed;
+}
+.cloistr-appshell-menuitem-shortcut {
+  color: var(--cloistr-text-dim);
+  font-family: var(--cloistr-font-mono);
+  font-size: 0.85em;
+}
+
+/* Mobile drawer */
+.cloistr-appshell-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 50%);
+  z-index: var(--cloistr-z-modal);
+}
+.cloistr-appshell-drawer {
+  position: fixed;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: min(320px, 85vw);
+  padding: var(--cloistr-space-md);
+  background: var(--cloistr-bg-elevated);
+  border-right: 1px solid var(--cloistr-border);
+  box-shadow: var(--cloistr-shadow-lg);
+  overflow-y: auto;
+  z-index: calc(var(--cloistr-z-modal) + 1);
+}
+.cloistr-appshell-drawer-nav { margin-bottom: var(--cloistr-space-lg); }
+.cloistr-appshell-drawer-section-trigger {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 44px;
+  padding: var(--cloistr-space-sm);
+  background: transparent;
+  border: none;
+  color: var(--cloistr-text);
+  font-family: var(--cloistr-font-sans);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--cloistr-radius-sm);
+}
+.cloistr-appshell-drawer-section-trigger:hover { background: var(--cloistr-bg-hover); }

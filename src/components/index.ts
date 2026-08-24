@@ -12,3 +12,6 @@ export type { UserMenuProps } from './UserMenu';
 
 export { ServiceMenu, defaultServices } from './ServiceMenu';
 export type { ServiceMenuProps, Service } from './ServiceMenu';
+
+export { AppShell } from './AppShell';
+export type { AppShellProps, MenuSection, MenuItem } from './AppShell';
