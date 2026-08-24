@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { SidebarToggle } from './Sidebar.js';
 
 /**
@@ -83,9 +83,54 @@ export interface MenuSection {
   items: MenuEntry[];
 }
 
+/**
+ * Drawer state, so the trigger can live somewhere else in the tree.
+ *
+ * The model says the ONE control belongs "in the shared header, in the same
+ * position in every app". AppShell originally rendered it as its own child,
+ * which sits BELOW the app's <Header> — the same position as the app-owned
+ * hamburgers it replaced, and the pre-merge gate caught that on its first run
+ * against already-migrated code.
+ *
+ * Apps render <Header><AppShellToggle /></Header> inside <AppShell> so the
+ * trigger is a real descendant of <header>.
+ */
+interface AppShellContextValue {
+  open: boolean;
+  toggle: () => void;
+  /** True when a hamburger should exist at all: mobile, and there is something to show. */
+  wanted: boolean;
+}
+
+const AppShellContext = createContext<AppShellContextValue | null>(null);
+
+/**
+ * The single nav trigger, placed by the app inside the shared Header.
+ *
+ * Renders nothing on desktop, and nothing when the app has neither nav nor
+ * commands — an empty drawer is worse than no control.
+ */
+export function AppShellToggle({ className }: { className?: string } = {}) {
+  const ctx = useContext(AppShellContext);
+  if (!ctx || !ctx.wanted) return null;
+  return (
+    <div className={`cloistr-appshell-hamburger ${className ?? ''}`.trim()} data-testid="appshell-hamburger">
+      <SidebarToggle expanded={ctx.open} onClick={ctx.toggle} />
+    </div>
+  );
+}
+
 export interface AppShellProps {
   /** Which app this is, e.g. "docs". */
   serviceId: string;
+  /**
+   * Place the trigger yourself, via <AppShellToggle /> inside your <Header>.
+   *
+   * Defaults to false so existing consumers keep the inline trigger and nothing
+   * breaks; set it true once your header renders AppShellToggle, which is what
+   * the navigation model actually requires.
+   */
+  toggleInHeader?: boolean;
   /** Optional in-app navigation (folder tree, mailbox list, slide navigator). */
   nav?: ReactNode;
   /** Optional app commands, as DATA. See the note above. */
@@ -304,7 +349,7 @@ function DrawerMenu({ sections, onDone }: { sections: MenuSection[]; onDone: () 
   );
 }
 
-export function AppShell({ serviceId, nav, menu, children }: AppShellProps) {
+export function AppShell({ serviceId, nav, menu, children, toggleInHeader = false }: AppShellProps) {
   const isMobile = useIsMobile();
   const [drawerOpen, setDrawerOpen] = useState(false);
 
@@ -330,14 +375,25 @@ export function AppShell({ serviceId, nav, menu, children }: AppShellProps) {
     if (!isMobile) setDrawerOpen(false);
   }, [isMobile]);
 
+  const ctx: AppShellContextValue = {
+    open: drawerOpen,
+    toggle: () => setDrawerOpen((v) => !v),
+    wanted: chrome.hamburger,
+  };
+
   return (
+    <AppShellContext.Provider value={ctx}>
     <div
       className="cloistr-appshell"
       data-service-id={serviceId}
       data-viewport={isMobile ? 'mobile' : 'desktop'}
     >
-      {chrome.hamburger ? (
-        // Reuse SidebarToggle: same glyph, same a11y, one control in the fleet.
+      {chrome.hamburger && !toggleInHeader ? (
+        // Legacy placement: a child of the shell, which sits BELOW the app's
+        // <Header>. Kept so existing consumers do not break, but apps should
+        // move to <AppShellToggle /> inside their Header — see the context doc
+        // above. Rendering BOTH is impossible: this branch is skipped whenever
+        // toggleInHeader is set.
         <div className="cloistr-appshell-hamburger" data-testid="appshell-hamburger">
           <SidebarToggle expanded={drawerOpen} onClick={() => setDrawerOpen((v) => !v)} />
         </div>
@@ -379,5 +435,6 @@ export function AppShell({ serviceId, nav, menu, children }: AppShellProps) {
         </>
       ) : null}
     </div>
+    </AppShellContext.Provider>
   );
 }
