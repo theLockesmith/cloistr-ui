@@ -97,9 +97,17 @@ export interface MenuSection {
  * trigger is a real descendant of <header>.
  */
 interface AppShellContextValue {
+  /** Mobile drawer open. */
   open: boolean;
+  /** Desktop rail collapsed to icons. */
+  collapsed: boolean;
+  /**
+   * One control, two meanings, chosen by viewport: opens the drawer on mobile,
+   * collapses the rail on desktop. Same button, same position, so the user
+   * learns it once.
+   */
   toggle: () => void;
-  /** True when a hamburger should exist at all: mobile, and there is something to show. */
+  /** True when the control should exist at all at this viewport. */
   wanted: boolean;
 }
 
@@ -126,7 +134,9 @@ export function AppShellToggle({ className }: { className?: string } = {}) {
 
   const button = (
     <div className={`cloistr-appshell-hamburger ${className ?? ''}`.trim()} data-testid="appshell-hamburger">
-      <SidebarToggle expanded={ctx.open} onClick={ctx.toggle} />
+      {/* expanded reflects whichever thing this viewport's toggle controls, so
+          aria-expanded is never a lie about the other one. */}
+      <SidebarToggle expanded={ctx.open || !ctx.collapsed} onClick={ctx.toggle} />
     </div>
   );
 
@@ -186,8 +196,19 @@ export function appShellChrome(opts: {
 }): { hamburger: boolean; menuBar: boolean; sidebar: boolean } {
   const { isMobile, hasNav, hasMenu } = opts;
   return {
-    // An empty drawer is worse than no control.
-    hamburger: isMobile && (hasNav || hasMenu),
+    // MOBILE: one control, and only when there is something to put behind it —
+    // an empty drawer is worse than no control.
+    //
+    // DESKTOP: a control ONLY when the app has in-app navigation, where it
+    // collapses the rail to icons rather than hiding anything. This is the
+    // gmail / proton / outlook pattern and it is what the operator asked for.
+    //
+    // navigation-model.md originally said "No hamburger anywhere" on desktop.
+    // That rule was written against apps HIDING their navigation on a wide
+    // screen, which is still wrong. Collapsing a rail to icons is a different
+    // thing: nothing becomes unreachable, and the control stays in the same
+    // place at every width instead of appearing only under 768px.
+    hamburger: isMobile ? hasNav || hasMenu : hasNav,
     menuBar: !isMobile && hasMenu,
     sidebar: !isMobile && hasNav,
   };
@@ -381,6 +402,7 @@ function DrawerMenu({ sections, onDone }: { sections: MenuSection[]; onDone: () 
 export function AppShell({ serviceId, nav, menu, children, toggleInHeader = false }: AppShellProps) {
   const isMobile = useIsMobile();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [railCollapsed, setRailCollapsed] = useState(false);
 
   const chrome = appShellChrome({
     isMobile,
@@ -406,7 +428,8 @@ export function AppShell({ serviceId, nav, menu, children, toggleInHeader = fals
 
   const ctx: AppShellContextValue = {
     open: drawerOpen,
-    toggle: () => setDrawerOpen((v) => !v),
+    collapsed: railCollapsed,
+    toggle: () => (isMobile ? setDrawerOpen((v) => !v) : setRailCollapsed((v) => !v)),
     wanted: chrome.hamburger,
   };
 
@@ -432,7 +455,10 @@ export function AppShell({ serviceId, nav, menu, children, toggleInHeader = fals
 
       <div className="cloistr-appshell-body">
         {chrome.sidebar ? (
-          <aside className="cloistr-appshell-sidebar" aria-label="In-app navigation">
+          <aside
+            className={`cloistr-appshell-sidebar${railCollapsed ? ' cloistr-appshell-sidebar--collapsed' : ''}`}
+            aria-label="In-app navigation"
+          >
             {nav}
           </aside>
         ) : null}
