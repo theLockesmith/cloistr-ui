@@ -35,30 +35,38 @@ describe('classifyRestoreOutcome', () => {
   });
 });
 
-describe('classifyRestoreOutcome / key-locked', () => {
-  // Every key in the signer is user-held, so it exists only in the memory of
-  // the replica that handled that user's login. After a pod restart — or, before
-  // sticky sessions, a request that simply landed on the other pod — the key
-  // genuinely needs the passphrase again.
+describe('classifyRestoreOutcome / key-locked is RETRYABLE', () => {
+  // Corrected 2026-08-25 after the operator pushed back:
   //
-  // Before the signer returned 409 key_locked, that case answered 200, published
-  // no ack, and the browser waited out a 30s timeout and reported "Could not
-  // reach your signer" about a signer that was healthy the whole time.
-  it('a locked key is its own outcome, not signer-unreachable', () => {
+  //   "when the connection times out, that's not a need to reenter
+  //    credentials, I can reload the page for a fresh try without them."
+  //
+  // 409 key_locked means the replica serving the request did not hold this
+  // user's unlocked key. That is a server-side routing problem — another
+  // replica may hold it, and a plain reload can succeed with no credentials at
+  // all. Treating it as "enter your password" was wrong.
+  it('is signer-unreachable, so the user gets retry + "try again"', () => {
     expect(
       classifyRestoreOutcome({ connected: false, hasSession: true, keyLocked: true }),
-    ).toBe('key-locked');
+    ).toBe('signer-unreachable');
   });
 
-  it('a locked key is never reported as logged-out', () => {
-    // The session is valid; only the KEY is locked. Clearing the session here
-    // is what made a relay hiccup look like "this app randomly logs me out".
+  it('is NOT logged-out even with no session cookie visible', () => {
+    // A locked key proves a session existed server-side; clearing the user out
+    // here is exactly the false-logout this whole design forbids.
     expect(
       classifyRestoreOutcome({ connected: false, hasSession: false, keyLocked: true }),
-    ).not.toBe('logged-out');
+    ).toBe('signer-unreachable');
   });
 
-  it('connected still wins over a stale locked flag', () => {
+  it('never yields an outcome that would prompt for credentials', () => {
+    for (const hasSession of [true, false]) {
+      const out = classifyRestoreOutcome({ connected: false, hasSession, keyLocked: true });
+      expect(out).not.toBe('logged-out');
+    }
+  });
+
+  it('connected still wins', () => {
     expect(
       classifyRestoreOutcome({ connected: true, hasSession: true, keyLocked: true }),
     ).toBe('connected');
