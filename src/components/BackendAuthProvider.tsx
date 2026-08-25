@@ -681,6 +681,7 @@ function BackendAuthInner({ children, config, resolveSignerRef }: InnerProviderP
     // This provider has no signer bootstrap of its own; it is never the source
     // of an unreachable-signer state.
     signerUnreachable: false,
+    keyLocked: false,
     retrySignerConnect: async () => false,
     pin: pinValue,
   }), [isResolving, pinValue]);

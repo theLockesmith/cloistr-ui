@@ -75,13 +75,24 @@ const SSO_SAFETY_CAP_MS = 30000;
  * Pure and exported so the rule is pinned by test rather than living inside a
  * component nobody can assert on.
  */
-export type RestoreOutcome = 'connected' | 'signer-unreachable' | 'logged-out';
+export type RestoreOutcome =
+  | 'connected'
+  | 'key-locked'
+  | 'signer-unreachable'
+  | 'logged-out';
 
 export function classifyRestoreOutcome(opts: {
   connected: boolean;
   hasSession: boolean;
+  /** The signer answered 409 key_locked: the key needs the user's passphrase. */
+  keyLocked?: boolean;
 }): RestoreOutcome {
   if (opts.connected) return 'connected';
+  // A locked key is a DIFFERENT problem from an unreachable signer, and it has
+  // a different remedy: the user must supply the passphrase that unlocks it.
+  // Reporting it as unreachable showed a network error over a healthy signer
+  // and sent the user to an extension login they did not need.
+  if (opts.keyLocked) return 'key-locked';
   // A session we could not use is NOT a logged-out session.
   return opts.hasSession ? 'signer-unreachable' : 'logged-out';
 }
@@ -129,6 +140,12 @@ interface SharedSessionContextValue {
    * logged me out".
    */
   signerUnreachable: boolean;
+  /**
+   * The signer refused with 409 key_locked: the session is valid but the key
+   * is not unlocked on the serving replica. Apps MUST prompt for the password
+   * here — a retry cannot help, and a relay-error screen is a lie.
+   */
+  keyLocked: boolean;
   /** Retry the signer connect. Backs the recovery screen's "Try again". */
   retrySignerConnect: () => Promise<boolean>;
   /**
@@ -264,6 +281,7 @@ function SessionSyncInner({
   }, [bootstrapKeys]);
 
   const [signerUnreachable, setSignerUnreachable] = useState(false);
+  const [keyLocked, setKeyLocked] = useState(false);
 
   const retrySignerConnect = useCallback(async (): Promise<boolean> => {
     setSignerUnreachable(false);
@@ -315,6 +333,15 @@ function SessionSyncInner({
         }
       } catch (error) {
         console.warn('SSO bootstrap failed after retries:', error);
+        const locked =
+          (error as { code?: string })?.code === 'key_locked' ||
+          /KEY_LOCKED/.test(String((error as Error)?.message ?? ''));
+        if (locked) {
+          // Do NOT retry and do NOT surface a relay error: only the user's
+          // passphrase can resolve this.
+          setKeyLocked(true);
+          return;
+        }
         // A shared session cookie means the user IS signed in; we simply could
         // not reach their signer. Surfacing that as "not connected" is what
         // produced a credential prompt over a valid session. Flag it instead so
@@ -375,6 +402,7 @@ function SessionSyncInner({
     isCloistrDomain: isCloistrDomain(),
     isResolving,
     signerUnreachable,
+    keyLocked,
     retrySignerConnect,
     pin: pinValue,
   };
