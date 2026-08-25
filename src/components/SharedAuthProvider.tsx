@@ -13,7 +13,8 @@
  * BackendAuthProvider so JWT apps get identical multi-identity behaviour.
  */
 
-import { useEffect, useCallback, useRef, createContext, useContext, useMemo, ReactNode } from 'react';
+import { withSignerRetry } from '../lib/signerRetry.js';
+import { useEffect, useCallback, useRef, createContext, useContext, useMemo, ReactNode, useState} from 'react';
 import {
   AuthProvider,
   useNostrAuth,
@@ -58,6 +59,33 @@ import { AuthRestoreGate } from './AuthRestoreGate.js';
  */
 const SSO_SAFETY_CAP_MS = 30000;
 
+/**
+ * The one decision that keeps being got wrong: is the user LOGGED OUT, or is
+ * their signer merely UNREACHABLE?
+ *
+ * "session" = who you are (the shared .cloistr.xyz cookie). Only a genuine
+ * expiry justifies asking for credentials.
+ * "signer reachability" = can we reach their bunker over relays right now.
+ * That is transient and must be retried, then surfaced as "try again".
+ *
+ * Conflating them is what let a relay hiccup render a login prompt over a
+ * perfectly valid session — which to a non-technical user reads as "this app
+ * randomly logs me out", and is fatal for a product holding their mail.
+ *
+ * Pure and exported so the rule is pinned by test rather than living inside a
+ * component nobody can assert on.
+ */
+export type RestoreOutcome = 'connected' | 'signer-unreachable' | 'logged-out';
+
+export function classifyRestoreOutcome(opts: {
+  connected: boolean;
+  hasSession: boolean;
+}): RestoreOutcome {
+  if (opts.connected) return 'connected';
+  // A session we could not use is NOT a logged-out session.
+  return opts.hasSession ? 'signer-unreachable' : 'logged-out';
+}
+
 export interface SharedAuthProviderProps {
   children: ReactNode;
   /**
@@ -93,6 +121,16 @@ interface SharedSessionContextValue {
    * completes, which reads as "no session persistence across pages".
    */
   isResolving: boolean;
+  /**
+   * The session is VALID but the signer could not be reached, after bounded
+   * retries. Apps MUST render the recovery screen for this, never a login
+   * prompt: session validity and signer reachability are different things, and
+   * conflating them is what made a relay hiccup look like "this app randomly
+   * logged me out".
+   */
+  signerUnreachable: boolean;
+  /** Retry the signer connect. Backs the recovery screen's "Try again". */
+  retrySignerConnect: () => Promise<boolean>;
   /**
    * Per-tab pin utilities. The pin overrides the global active key for this tab
    * only (stored in sessionStorage, not propagated via cookie).
@@ -208,8 +246,36 @@ function SessionSyncInner({
    * Delegates the key-list + signer mint to bootstrapKeys() from the shared hook.
    */
   const attemptSsoConnect = useCallback(async (): Promise<boolean> => {
-    return bootstrapKeys();
+    // Bounded retry with backoff and full jitter. A NIP-46 connect failing once
+    // is almost always transient — a relay socket that died while the phone was
+    // backgrounded — and the previous code gave up after ONE attempt and handed
+    // the app a "not connected", which rendered a login prompt over a perfectly
+    // valid session.
+    //
+    // ~3 attempts inside the safety cap, so the user reaches a decision in a few
+    // seconds instead of staring at a spinner for 30.
+    return withSignerRetry(async () => {
+      const ok = await bootstrapKeys();
+      // bootstrapKeys resolves false rather than throwing; turn that into a
+      // throw so the retry policy can see it as a retryable failure.
+      if (!ok) throw new Error('CONNECTION_FAILED: signer bootstrap returned false');
+      return ok;
+    }, { attempts: 3, baseDelayMs: 600, maxDelayMs: 2500 });
   }, [bootstrapKeys]);
+
+  const [signerUnreachable, setSignerUnreachable] = useState(false);
+
+  const retrySignerConnect = useCallback(async (): Promise<boolean> => {
+    setSignerUnreachable(false);
+    try {
+      const ok = await attemptSsoConnect();
+      if (!ok) setSignerUnreachable(true);
+      return ok;
+    } catch {
+      setSignerUnreachable(true);
+      return false;
+    }
+  }, [attemptSsoConnect]);
 
   const attemptAutoConnect = useCallback(async () => {
     if (autoConnectAttempted.current || isAuthenticated || authState.isConnecting) {
@@ -243,11 +309,20 @@ function SessionSyncInner({
       // 1. SSO first: silent reconnect via the signer session (NIP-46 / nostrconnect).
       try {
         if (await attemptSsoConnect()) {
+          setSignerUnreachable(false);
           onAutoConnectComplete?.(true);
           return;
         }
       } catch (error) {
-        console.warn('SSO bootstrap failed, falling back to local session:', error);
+        console.warn('SSO bootstrap failed after retries:', error);
+        // A shared session cookie means the user IS signed in; we simply could
+        // not reach their signer. Surfacing that as "not connected" is what
+        // produced a credential prompt over a valid session. Flag it instead so
+        // the app renders recovery, and do NOT report a failed auto-connect.
+        if (classifyRestoreOutcome({ connected: false, hasSession: !!session }) === 'signer-unreachable') {
+          setSignerUnreachable(true);
+          return;
+        }
       }
 
       // 2. Legacy fallback: check if a shared session cookie exists. On non-cloistr
@@ -299,6 +374,8 @@ function SessionSyncInner({
     getSharedSession,
     isCloistrDomain: isCloistrDomain(),
     isResolving,
+    signerUnreachable,
+    retrySignerConnect,
     pin: pinValue,
   };
 

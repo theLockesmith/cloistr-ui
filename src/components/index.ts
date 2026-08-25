@@ -59,3 +59,6 @@ export type { ThemeToggleProps } from './ThemeToggle.js';
 
 export { AppShell, AppShellToggle, appShellChrome, menuItemState, isSeparator, nextMenuIndex, useIsMobile, APPSHELL_BREAKPOINT } from './AppShell.js';
 export type { AppShellProps, MenuSection, MenuItem, MenuEntry, MenuSeparator } from './AppShell.js';
+
+export { classifyRestoreOutcome } from './SharedAuthProvider.js';
+export type { RestoreOutcome } from './SharedAuthProvider.js';
