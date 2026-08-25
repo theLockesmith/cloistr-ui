@@ -32,6 +32,14 @@ import {
   isCloistrDomain,
 } from './session.js';
 
+/**
+ * The signer refuses a nostrconnect session with this code when the user's key
+ * is not unlocked on the replica serving the request. A locked key and an
+ * unreachable relay are different problems with different remedies, and the
+ * whole point of the code is that a browser cannot tell them apart otherwise.
+ */
+export const KEY_LOCKED = 'key_locked';
+
 /** Shape returned by the GET /api/v1/keys endpoint */
 export interface SignerKey {
   id: string;
@@ -160,9 +168,31 @@ export function useKeySwitcherBootstrap(
             );
             if (!sessionRes.ok) {
               ncSession.cancel();
-              reject(
-                new Error(`nostrconnect/session failed: ${sessionRes.status}`),
+              // 409 key_locked is NOT a failure to reach the signer. Every key
+              // is user-held, so it lives only in the memory of the replica
+              // that handled that user's login; after a pod restart, or a
+              // request that lands elsewhere, the key genuinely needs the
+              // user's passphrase again.
+              //
+              // Before the signer returned this code, that case answered 200
+              // and then published no ack, so the browser waited out a 30s
+              // timeout and reported "Could not reach your signer" about a
+              // signer that was healthy — then pushed the user toward a NIP-07
+              // extension login they did not need. Carry the code so callers
+              // can ask for the password instead of blaming the network.
+              let code: string | undefined;
+              try {
+                code = ((await sessionRes.json()) as { code?: string }).code;
+              } catch {
+                // Body was not JSON; fall through to the status-only error.
+              }
+              const err = new Error(
+                code === KEY_LOCKED
+                  ? 'KEY_LOCKED: your signing key is locked; sign in with your password to unlock it'
+                  : `nostrconnect/session failed: ${sessionRes.status}`,
               );
+              (err as Error & { code?: string }).code = code;
+              reject(err);
               return;
             }
             const body = (await sessionRes.json()) as {

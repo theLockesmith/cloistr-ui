@@ -34,3 +34,48 @@ describe('classifyRestoreOutcome', () => {
     }
   });
 });
+
+describe('classifyRestoreOutcome / key-locked is RETRYABLE', () => {
+  // Corrected 2026-08-25 after the operator pushed back:
+  //
+  //   "when the connection times out, that's not a need to reenter
+  //    credentials, I can reload the page for a fresh try without them."
+  //
+  // 409 key_locked means the replica serving the request did not hold this
+  // user's unlocked key. That is a server-side routing problem — another
+  // replica may hold it, and a plain reload can succeed with no credentials at
+  // all. Treating it as "enter your password" was wrong.
+  it('is signer-unreachable, so the user gets retry + "try again"', () => {
+    expect(
+      classifyRestoreOutcome({ connected: false, hasSession: true, keyLocked: true }),
+    ).toBe('signer-unreachable');
+  });
+
+  it('is NOT logged-out even with no session cookie visible', () => {
+    // A locked key proves a session existed server-side; clearing the user out
+    // here is exactly the false-logout this whole design forbids.
+    expect(
+      classifyRestoreOutcome({ connected: false, hasSession: false, keyLocked: true }),
+    ).toBe('signer-unreachable');
+  });
+
+  it('never yields an outcome that would prompt for credentials', () => {
+    for (const hasSession of [true, false]) {
+      const out = classifyRestoreOutcome({ connected: false, hasSession, keyLocked: true });
+      expect(out).not.toBe('logged-out');
+    }
+  });
+
+  it('connected still wins', () => {
+    expect(
+      classifyRestoreOutcome({ connected: true, hasSession: true, keyLocked: true }),
+    ).toBe('connected');
+  });
+
+  it('without the flag, behaviour is unchanged', () => {
+    expect(classifyRestoreOutcome({ connected: false, hasSession: true })).toBe(
+      'signer-unreachable',
+    );
+    expect(classifyRestoreOutcome({ connected: false, hasSession: false })).toBe('logged-out');
+  });
+});

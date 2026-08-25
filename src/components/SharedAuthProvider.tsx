@@ -80,10 +80,27 @@ export type RestoreOutcome = 'connected' | 'signer-unreachable' | 'logged-out';
 export function classifyRestoreOutcome(opts: {
   connected: boolean;
   hasSession: boolean;
+  /**
+   * The signer answered 409 key_locked — the replica serving the request did
+   * not hold this user's unlocked key.
+   *
+   * This is RETRYABLE and must NOT produce a credential prompt. It is a
+   * server-side routing problem, not a user problem: another replica may hold
+   * the key, and a plain page reload can land there and succeed with no
+   * credentials whatsoever. Operator, 2026-08-25: "when the connection times
+   * out, that's not a need to reenter credentials, I can reload the page for a
+   * fresh try without them."
+   *
+   * Deliberately does NOT get its own outcome. Everything the user should see
+   * is identical to any other transient signer failure: retry, then an "oops,
+   * try again" screen that never mentions credentials.
+   */
+  keyLocked?: boolean;
 }): RestoreOutcome {
   if (opts.connected) return 'connected';
-  // A session we could not use is NOT a logged-out session.
-  return opts.hasSession ? 'signer-unreachable' : 'logged-out';
+  // A session we could not use is NOT a logged-out session — whether the cause
+  // was a dead socket or a replica without the key.
+  return opts.hasSession || opts.keyLocked ? 'signer-unreachable' : 'logged-out';
 }
 
 export interface SharedAuthProviderProps {
@@ -289,22 +306,36 @@ function SessionSyncInner({
       // attempting any signer-session bootstrap.
       const session = getSharedSession();
 
-      // NIP-07: the extension holds the key non-custodially. The signer has no
-      // session cookie for this key, so bootstrapKeys() would just return false.
-      // Instead, call connectNip07() directly which re-prompts the extension and
-      // registers the pubkey into authState. We do NOT try to run a signer fetch.
-      if (session?.method === 'nip07' && isNip07Supported()) {
+      // NIP-07 restore — but ONLY when there is no server-side session to use.
+      //
+      // The method cookie is sticky: once you have ever signed in with an
+      // extension it keeps saying "nip07", and this branch used to run FIRST and
+      // unconditionally. connectNip07() touches window.nostr, and an extension
+      // prompts the instant it is touched — so on every page load the user was
+      // met with an Alby/nos2x unlock BEFORE the bunker flow was even attempted,
+      // even though their signer session was sitting right there in the cookie.
+      //
+      // Operator, 2026-08-25: "the extension login is happening before the
+      // timeout happens... I'm immediately met with an extension unlock because
+      // that's being promoted first regardless of bunker in the cookie."
+      //
+      // This is the same principle already enforced for background
+      // reconciliation further down keySwitcher: an extension is a USER-PRESENT
+      // signer and may only be invoked by explicit intent. A page load is not
+      // intent. So: try the silent server-side path first, and fall back to the
+      // extension only if there is genuinely nothing else to restore from.
+      const canTryNip07 = session?.method === 'nip07' && isNip07Supported();
+      const restoreWithNip07 = async (): Promise<boolean> => {
         try {
           await connectNip07Ctx();
           onAutoConnectComplete?.(true);
-          return;
+          return true;
         } catch (error) {
           console.warn('NIP-07 session restore failed:', error);
-          // Fall through — let app show its login UI.
-          onAutoConnectComplete?.(false, session.pubkey);
-          return;
+          onAutoConnectComplete?.(false, session?.pubkey);
+          return true; // handled: the app shows its own login UI
         }
-      }
+      };
 
       // 1. SSO first: silent reconnect via the signer session (NIP-46 / nostrconnect).
       try {
@@ -315,6 +346,14 @@ function SessionSyncInner({
         }
       } catch (error) {
         console.warn('SSO bootstrap failed after retries:', error);
+        // NOTE: key_locked is deliberately NOT special-cased here. It is
+        // retryable like any other transient signer failure, and it falls
+        // through to signerUnreachable below so the user gets the retry and
+        // the "try again" screen — never a credential prompt.
+        //
+        // The extension is the LAST resort, reached only once the silent
+        // server-side path has genuinely failed.
+        if (canTryNip07 && (await restoreWithNip07())) return;
         // A shared session cookie means the user IS signed in; we simply could
         // not reach their signer. Surfacing that as "not connected" is what
         // produced a credential prompt over a valid session. Flag it instead so
