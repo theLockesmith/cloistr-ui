@@ -34,3 +34,40 @@ describe('classifyRestoreOutcome', () => {
     }
   });
 });
+
+describe('classifyRestoreOutcome / key-locked', () => {
+  // Every key in the signer is user-held, so it exists only in the memory of
+  // the replica that handled that user's login. After a pod restart — or, before
+  // sticky sessions, a request that simply landed on the other pod — the key
+  // genuinely needs the passphrase again.
+  //
+  // Before the signer returned 409 key_locked, that case answered 200, published
+  // no ack, and the browser waited out a 30s timeout and reported "Could not
+  // reach your signer" about a signer that was healthy the whole time.
+  it('a locked key is its own outcome, not signer-unreachable', () => {
+    expect(
+      classifyRestoreOutcome({ connected: false, hasSession: true, keyLocked: true }),
+    ).toBe('key-locked');
+  });
+
+  it('a locked key is never reported as logged-out', () => {
+    // The session is valid; only the KEY is locked. Clearing the session here
+    // is what made a relay hiccup look like "this app randomly logs me out".
+    expect(
+      classifyRestoreOutcome({ connected: false, hasSession: false, keyLocked: true }),
+    ).not.toBe('logged-out');
+  });
+
+  it('connected still wins over a stale locked flag', () => {
+    expect(
+      classifyRestoreOutcome({ connected: true, hasSession: true, keyLocked: true }),
+    ).toBe('connected');
+  });
+
+  it('without the flag, behaviour is unchanged', () => {
+    expect(classifyRestoreOutcome({ connected: false, hasSession: true })).toBe(
+      'signer-unreachable',
+    );
+    expect(classifyRestoreOutcome({ connected: false, hasSession: false })).toBe('logged-out');
+  });
+});
