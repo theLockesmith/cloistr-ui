@@ -1,4 +1,5 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { SidebarToggle } from './Sidebar.js';
 
 /**
@@ -112,12 +113,40 @@ const AppShellContext = createContext<AppShellContextValue | null>(null);
  */
 export function AppShellToggle({ className }: { className?: string } = {}) {
   const ctx = useContext(AppShellContext);
+  // Subscribe to the slot's existence so the first render after Header mounts
+  // still lands in the right place. Returning null on the server keeps this
+  // safe outside a browser.
+  const slot = useSyncExternalStore(
+    subscribeToSlot,
+    () => document.querySelector('[data-appshell-slot]'),
+    () => null,
+  );
+
   if (!ctx || !ctx.wanted) return null;
-  return (
+
+  const button = (
     <div className={`cloistr-appshell-hamburger ${className ?? ''}`.trim()} data-testid="appshell-hamburger">
       <SidebarToggle expanded={ctx.open} onClick={ctx.toggle} />
     </div>
   );
+
+  // Portal into the shared Header when it is present. React context follows the
+  // REACT tree, not the DOM tree, so the drawer state still reaches this button
+  // even though it renders inside <header>.
+  return slot ? createPortal(button, slot) : button;
+}
+
+/**
+ * The Header may mount after AppShell. Re-read the slot on the next frames so
+ * the toggle does not silently fall back to inline placement forever because it
+ * looked once, too early — which would reintroduce a trigger below the header,
+ * the exact defect this replaces.
+ */
+function subscribeToSlot(onChange: () => void): () => void {
+  if (typeof MutationObserver === 'undefined') return () => {};
+  const obs = new MutationObserver(onChange);
+  obs.observe(document.body, { childList: true, subtree: true });
+  return () => obs.disconnect();
 }
 
 export interface AppShellProps {

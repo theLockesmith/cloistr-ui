@@ -82,6 +82,14 @@ export function Header({
     <>
       <header className="cloistr-header">
         <div className="cloistr-header-left">
+          {/* Mount point for AppShell's single nav trigger.
+              The model puts ONE control "in the shared header, in the same
+              position in every app". AppShell usually sits deeper in the tree
+              than Header (docs renders Header in App.tsx and AppShell inside
+              Editor.tsx), so AppShellToggle PORTALS into this node: DOM
+              position inside <header> as required, React position inside
+              AppShell so it still has the drawer context. */}
+          <span className="cloistr-header-appshell-slot" data-appshell-slot="" />
           <a href={logoHref} className="cloistr-header-logo">
             {logo || defaultLogo}
           </a>
