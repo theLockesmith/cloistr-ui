@@ -678,6 +678,10 @@ function BackendAuthInner({ children, config, resolveSignerRef }: InnerProviderP
     getSharedSession: (): SharedSession | null => getSharedSession(),
     isCloistrDomain: isCloistrDomain(),
     isResolving,
+    // This provider has no signer bootstrap of its own; it is never the source
+    // of an unreachable-signer state.
+    signerUnreachable: false,
+    retrySignerConnect: async () => false,
     pin: pinValue,
   }), [isResolving, pinValue]);
 
