@@ -57,6 +57,7 @@ import {
 import type { SharedSession } from '../lib/session.js';
 import { useKeySwitcherBootstrap } from '../lib/keySwitcher.js';
 import { SharedSessionContext } from './SharedAuthProvider.js';
+import { planPageLoadRestore } from './authRestorePolicy.js';
 import { AuthRestoreGate } from './AuthRestoreGate.js';
 
 // ============================================
@@ -173,6 +174,9 @@ function BackendAuthInner({ children, config, resolveSignerRef }: InnerProviderP
   const [tokenExpiry, setTokenExpiry] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [extensionAvailable, setExtensionAvailable] = useState(false);
+  // "Your last sign-in here used an extension" — a hint for the login UI, not a
+  // trigger. Restore never touches window.nostr; see authRestorePolicy.ts.
+  const [offerExtension, setOfferExtension] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -571,25 +575,27 @@ function BackendAuthInner({ children, config, resolveSignerRef }: InnerProviderP
       // Try to validate existing token
       const hasValidToken = await validateToken();
 
-      // If no valid token but shared session exists, try auto-login.
-      // For NIP-07: use the auth context's connectNip07 so the pubkey lands in
-      // authState.keys / activePubkey (not just used as a raw signer). The
-      // ssoSigner effect below then picks it up and drives the JWT exchange.
-      // Do NOT call bootstrapKeys() for NIP-07 sessions — the signer holds the
-      // key non-custodially; there is no signer-session cookie to authenticate.
+      // NO auto-login through the extension.
+      //
+      // This branch used to call connectNip07() whenever the sticky
+      // `cloistr_auth_method` cookie said nip07 — first, before anything else,
+      // and then `return`, which ALSO skipped the signer-session bootstrap
+      // below. On a browser that had signed in with an extension once, that
+      // made every load open an extension prompt and made the signer session
+      // unreachable forever, so dismissing the prompt left no way in at all.
+      //
+      // window.nostr prompts the moment it is read, and a page load is not user
+      // intent. The extension is now offered by the login UI as a button. See
+      // authRestorePolicy.ts.
       if (!hasValidToken && isCloistrDomain()) {
         const session = getSharedSession();
-        if (session?.method === 'nip07' && isNip07Supported()) {
-          try {
-            await connectNip07Ctx();
-            // ssoSigner effect fires next render and exchanges for JWT.
-          } catch {
-            // Auto-login failed, user needs to login manually
-          }
-          // NIP-07 restore attempt done — skip signer-session bootstrap below.
-          setLoading(false);
-          return;
-        }
+        setOfferExtension(
+          planPageLoadRestore({
+            method: session?.method,
+            onCloistrDomain: true,
+            nip07Available: isNip07Supported(),
+          }).offerExtensionInLoginUi,
+        );
       }
 
       setLoading(false);
@@ -602,9 +608,7 @@ function BackendAuthInner({ children, config, resolveSignerRef }: InnerProviderP
   // Key-list bootstrap: call the shared bootstrapKeys() so authState.keys is
   // populated and the cookie + cross-tab sync is live.  On success the ssoSigner
   // effect below picks up the minted signer and drives the backend JWT exchange.
-  // SKIP for NIP-07 sessions: the extension is non-custodial; there is no
-  // signer-session cookie, and bootstrapKeys() would just return false anyway.
-  // The initAuth effect above handles NIP-07 restore via connectNip07Ctx().
+  // Runs for EVERY session method — see the note in the gate below.
   const bootstrapAttempted = useRef(false);
   useEffect(() => {
     const session = getSharedSession();
@@ -625,7 +629,16 @@ function BackendAuthInner({ children, config, resolveSignerRef }: InnerProviderP
     // Releasing here is only correct when no restore will be attempted at all.
     if (bootstrapAttempted.current) return;
 
-    if (!isCloistrDomain() || session?.method === 'nip07') {
+    // Deliberately NOT skipped for nip07 sessions any more. Skipping was what
+    // made the sticky method cookie a one-way door: the one path that could
+    // restore a real signer session was never tried on the browsers that most
+    // needed it. bootstrapKeys() returns false harmlessly when there is no
+    // signer-session cookie, so the cost of trying is one request.
+    if (!planPageLoadRestore({
+      method: session?.method,
+      onCloistrDomain: isCloistrDomain(),
+      nip07Available: false,
+    }).attemptSignerSession) {
       setIsResolving(false);
       return;
     }
@@ -682,8 +695,9 @@ function BackendAuthInner({ children, config, resolveSignerRef }: InnerProviderP
     // of an unreachable-signer state.
     signerUnreachable: false,
     retrySignerConnect: async () => false,
+    offerExtension,
     pin: pinValue,
-  }), [isResolving, pinValue]);
+  }), [isResolving, pinValue, offerExtension]);
 
   // ==========================================
   // Context Value

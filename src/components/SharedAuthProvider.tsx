@@ -31,6 +31,7 @@ import {
   type SharedSession,
 } from '../lib/session.js';
 import { useKeySwitcherBootstrap } from '../lib/keySwitcher.js';
+import { planPageLoadRestore } from './authRestorePolicy.js';
 import { useRelayReconnect } from '../lib/useRelayReconnect.js';
 import { AuthRestoreGate } from './AuthRestoreGate.js';
 
@@ -149,6 +150,15 @@ interface SharedSessionContextValue {
   /** Retry the signer connect. Backs the recovery screen's "Try again". */
   retrySignerConnect: () => Promise<boolean>;
   /**
+   * The user's last method was the extension and one is installed, so the login
+   * UI should put it front and centre.
+   *
+   * It is an OFFER, never an action: restore does not touch window.nostr, since
+   * reading it prompts and a page load is not user intent. See
+   * authRestorePolicy.ts.
+   */
+  offerExtension: boolean;
+  /**
    * Per-tab pin utilities. The pin overrides the global active key for this tab
    * only (stored in sessionStorage, not propagated via cookie).
    */
@@ -201,7 +211,7 @@ function SessionSyncInner({
 }: SharedAuthProviderProps & {
   resolveSignerRef: React.MutableRefObject<((identity: KeyIdentity) => Promise<SignerInterface>) | undefined>;
 }) {
-  const { authState, connectNip07: connectNip07Ctx } = useNostrAuth();
+  const { authState } = useNostrAuth();
   const { isAuthenticated } = useAuthHelpers();
   const autoConnectAttempted = useRef(false);
   const prevConnectedRef = useRef(authState.isConnected);
@@ -281,6 +291,7 @@ function SessionSyncInner({
   }, [bootstrapKeys]);
 
   const [signerUnreachable, setSignerUnreachable] = useState(false);
+  const [offerExtension, setOfferExtension] = useState(false);
 
   const retrySignerConnect = useCallback(async (): Promise<boolean> => {
     setSignerUnreachable(false);
@@ -306,36 +317,33 @@ function SessionSyncInner({
       // attempting any signer-session bootstrap.
       const session = getSharedSession();
 
-      // NIP-07 restore — but ONLY when there is no server-side session to use.
+      // The extension is NOT reachable from this code path at all.
       //
-      // The method cookie is sticky: once you have ever signed in with an
-      // extension it keeps saying "nip07", and this branch used to run FIRST and
-      // unconditionally. connectNip07() touches window.nostr, and an extension
-      // prompts the instant it is touched — so on every page load the user was
-      // met with an Alby/nos2x unlock BEFORE the bunker flow was even attempted,
-      // even though their signer session was sitting right there in the cookie.
+      // `cloistr_auth_method` is sticky: one extension sign-in pins the cookie
+      // to "nip07" for 30 days across every *.cloistr.xyz app. This branch used
+      // to answer that by calling connectNip07() whenever the silent path
+      // failed — and connectNip07() touches window.nostr, which makes Alby or
+      // nos2x prompt the instant it is read.
       //
-      // Operator, 2026-08-25: "the extension login is happening before the
-      // timeout happens... I'm immediately met with an extension unlock because
-      // that's being promoted first regardless of bunker in the cookie."
+      // On a browser that has never established a signer session — which is
+      // precisely a browser where you once chose "extension" — the silent path
+      // CANNOT succeed, so that fallback fired on every single load, and
+      // dismissing it left the user with no way in.
       //
-      // This is the same principle already enforced for background
-      // reconciliation further down keySwitcher: an extension is a USER-PRESENT
-      // signer and may only be invoked by explicit intent. A page load is not
-      // intent. So: try the silent server-side path first, and fall back to the
-      // extension only if there is genuinely nothing else to restore from.
-      const canTryNip07 = session?.method === 'nip07' && isNip07Supported();
-      const restoreWithNip07 = async (): Promise<boolean> => {
-        try {
-          await connectNip07Ctx();
-          onAutoConnectComplete?.(true);
-          return true;
-        } catch (error) {
-          console.warn('NIP-07 session restore failed:', error);
-          onAutoConnectComplete?.(false, session?.pubkey);
-          return true; // handled: the app shows its own login UI
-        }
-      };
+      // Operator, 2026-08-25: "I logged in ONE TIME with the extension and now
+      // the default behavior is force extension login and when I exit that,
+      // fail login altogether."
+      //
+      // keySwitcher already states the rule this restores ("NEVER auto-switch
+      // INTO a NIP-07 key"): an extension is a USER-PRESENT signer and may only
+      // be invoked by explicit intent. A page load is not intent. So the plan
+      // below only ever decides whether to OFFER it in the login UI.
+      const plan = planPageLoadRestore({
+        method: session?.method,
+        onCloistrDomain: isCloistrDomain(),
+        nip07Available: isNip07Supported(),
+      });
+      setOfferExtension(plan.offerExtensionInLoginUi);
 
       // 1. SSO first: silent reconnect via the signer session (NIP-46 / nostrconnect).
       try {
@@ -351,9 +359,8 @@ function SessionSyncInner({
         // through to signerUnreachable below so the user gets the retry and
         // the "try again" screen — never a credential prompt.
         //
-        // The extension is the LAST resort, reached only once the silent
-        // server-side path has genuinely failed.
-        if (canTryNip07 && (await restoreWithNip07())) return;
+        // No extension call on this path — see the note above.
+        //
         // A shared session cookie means the user IS signed in; we simply could
         // not reach their signer. Surfacing that as "not connected" is what
         // produced a credential prompt over a valid session. Flag it instead so
@@ -372,7 +379,7 @@ function SessionSyncInner({
       // Restore settled (success OR failure) — release the login gate.
       setIsResolving(false);
     }
-  }, [isAuthenticated, authState.isConnecting, connectNip07Ctx, attemptSsoConnect, onAutoConnectComplete, setIsResolving]);
+  }, [isAuthenticated, authState.isConnecting, attemptSsoConnect, onAutoConnectComplete, setIsResolving]);
 
   /**
    * Attempt auto-connect on mount
@@ -415,6 +422,7 @@ function SessionSyncInner({
     isResolving,
     signerUnreachable,
     retrySignerConnect,
+    offerExtension,
     pin: pinValue,
   };
 
