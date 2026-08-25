@@ -158,6 +158,20 @@ describe('nextMenuIndex', () => {
   });
 });
 
+describe('toggle placement', () => {
+  // The gate caught this against already-migrated code: AppShell rendered its
+  // trigger as its own child, which sits BELOW the app's <Header> — the exact
+  // position of the app-owned hamburgers it replaced. The model requires the
+  // one control to be IN the shared header.
+  it('appShellChrome still decides whether a hamburger is wanted at all', () => {
+    // Placement is a separate question from existence; moving the trigger must
+    // not resurrect it on desktop or for an app with nothing to show.
+    expect(appShellChrome({ isMobile: false, hasNav: true, hasMenu: true }).hamburger).toBe(false);
+    expect(appShellChrome({ isMobile: true, hasNav: false, hasMenu: false }).hamburger).toBe(false);
+    expect(appShellChrome({ isMobile: true, hasNav: true, hasMenu: false }).hamburger).toBe(true);
+  });
+});
+
 describe('AppShell styles', () => {
   const css = () => readFileSync(resolve(process.cwd(), 'src/styles/components.css'), 'utf8');
 
