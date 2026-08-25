@@ -18,12 +18,20 @@ import { appShellChrome, menuItemState, isSeparator, nextMenuIndex, APPSHELL_BRE
 describe('appShellChrome', () => {
   // Desktop: show structure, do not hide it. Hiding navigation on a wide
   // screen wastes the screen and hides the product.
-  it('desktop with nav and menu: sidebar + menu bar, NO hamburger', () => {
+  it('desktop WITH nav: a toggle that collapses the rail (gmail/proton pattern)', () => {
+    // Changed deliberately. The rule was "no hamburger anywhere on desktop",
+    // written against apps HIDING navigation on a wide screen. Collapsing a rail
+    // to icons hides nothing, and keeping the control in the same place at every
+    // width is what the operator asked for.
     expect(appShellChrome({ isMobile: false, hasNav: true, hasMenu: true })).toEqual({
-      hamburger: false,
+      hamburger: true,
       menuBar: true,
       sidebar: true,
     });
+  });
+
+  it('desktop with NO nav: still no toggle — there is no rail to collapse', () => {
+    expect(appShellChrome({ isMobile: false, hasNav: false, hasMenu: true }).hamburger).toBe(false);
   });
 
   it('desktop with neither: no chrome at all', () => {
@@ -166,7 +174,9 @@ describe('toggle placement', () => {
   it('appShellChrome still decides whether a hamburger is wanted at all', () => {
     // Placement is a separate question from existence; moving the trigger must
     // not resurrect it on desktop or for an app with nothing to show.
-    expect(appShellChrome({ isMobile: false, hasNav: true, hasMenu: true }).hamburger).toBe(false);
+    // Desktop WITH nav now gets a collapse toggle; desktop WITHOUT nav does not.
+    expect(appShellChrome({ isMobile: false, hasNav: true, hasMenu: true }).hamburger).toBe(true);
+    expect(appShellChrome({ isMobile: false, hasNav: false, hasMenu: true }).hamburger).toBe(false);
     expect(appShellChrome({ isMobile: true, hasNav: false, hasMenu: false }).hamburger).toBe(false);
     expect(appShellChrome({ isMobile: true, hasNav: true, hasMenu: false }).hamburger).toBe(true);
   });
