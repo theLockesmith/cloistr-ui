@@ -170,6 +170,21 @@ export interface AppShellProps {
    * the navigation model actually requires.
    */
   toggleInHeader?: boolean;
+  /**
+   * Controlled collapse for the desktop rail.
+   *
+   * Apps that supply their own sidebar component as `nav` usually already own a
+   * collapsed state. Without these props there are TWO independent states — the
+   * app's and the shell's — and the shell's toggle silently flips only its own,
+   * so the visible sidebar never reacts.
+   *
+   * Operator, on stash: "the hamburger menu doesn't work at all on desktop."
+   *
+   * Supply both to make the shell's toggle drive the app's state. Omit both and
+   * the shell keeps its own, which is right for apps that pass plain markup.
+   */
+  collapsed?: boolean;
+  onCollapsedChange?: (collapsed: boolean) => void;
   /** Optional in-app navigation (folder tree, mailbox list, slide navigator). */
   nav?: ReactNode;
   /** Optional app commands, as DATA. See the note above. */
@@ -399,10 +414,25 @@ function DrawerMenu({ sections, onDone }: { sections: MenuSection[]; onDone: () 
   );
 }
 
-export function AppShell({ serviceId, nav, menu, children, toggleInHeader = false }: AppShellProps) {
+export function AppShell({
+  serviceId,
+  nav,
+  menu,
+  children,
+  toggleInHeader = false,
+  collapsed: collapsedProp,
+  onCollapsedChange,
+}: AppShellProps) {
   const isMobile = useIsMobile();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [railCollapsed, setRailCollapsed] = useState(false);
+  const [railCollapsedUncontrolled, setRailCollapsedUncontrolled] = useState(false);
+  // Controlled when the app supplies both; uncontrolled otherwise.
+  const isControlled = collapsedProp !== undefined && onCollapsedChange !== undefined;
+  const railCollapsed = isControlled ? collapsedProp : railCollapsedUncontrolled;
+  const setRailCollapsed = (next: boolean) => {
+    if (isControlled) onCollapsedChange(next);
+    else setRailCollapsedUncontrolled(next);
+  };
 
   const chrome = appShellChrome({
     isMobile,
@@ -429,7 +459,7 @@ export function AppShell({ serviceId, nav, menu, children, toggleInHeader = fals
   const ctx: AppShellContextValue = {
     open: drawerOpen,
     collapsed: railCollapsed,
-    toggle: () => (isMobile ? setDrawerOpen((v) => !v) : setRailCollapsed((v) => !v)),
+    toggle: () => (isMobile ? setDrawerOpen((v) => !v) : setRailCollapsed(!railCollapsed)),
     wanted: chrome.hamburger,
   };
 

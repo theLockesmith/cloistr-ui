@@ -233,3 +233,19 @@ describe('AppShell styles', () => {
     expect(drawer![1]).toMatch(/z-index/);
   });
 });
+
+describe('controlled vs uncontrolled collapse', () => {
+  // stash supplies its OWN <Sidebar> as `nav`, with its own collapsed state.
+  // Without controlled props the shell kept a SECOND state, so its toggle
+  // flipped only the wrapper and the visible sidebar never reacted.
+  // Operator: "the stash hamburger menu doesn't work at all on desktop."
+  it('a desktop toggle only exists when there is a rail to collapse', () => {
+    expect(appShellChrome({ isMobile: false, hasNav: true, hasMenu: false }).hamburger).toBe(true);
+    expect(appShellChrome({ isMobile: false, hasNav: false, hasMenu: true }).hamburger).toBe(false);
+  });
+
+  it('the sidebar is only in flow on desktop, so collapse is a desktop concern', () => {
+    expect(appShellChrome({ isMobile: false, hasNav: true, hasMenu: false }).sidebar).toBe(true);
+    expect(appShellChrome({ isMobile: true, hasNav: true, hasMenu: false }).sidebar).toBe(false);
+  });
+})
