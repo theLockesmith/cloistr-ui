@@ -54,3 +54,10 @@ export type { SignerFailureKind, SignerRetryOptions } from './signerRetry.js';
 
 export { useRelayReconnect } from './useRelayReconnect.js';
 export type { RelayReconnectOptions } from './useRelayReconnect.js';
+
+// NIP-05 resolution for the shared header identity line.
+export { nip05LocalPart, nip05Domain, resolveNip05, useNip05 } from './nip05.js';
+
+// Anchoring for header overlays that must escape the header's stacking context.
+export { anchorBelow, OVERLAY_GAP_PX } from './overlayAnchor.js';
+export type { OverlayAnchor } from './overlayAnchor.js';

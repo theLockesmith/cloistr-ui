@@ -460,17 +460,35 @@
   color: var(--cloistr-text-muted);
 }
 
+/* Profile dropdown.
+ *
+ * PORTALED TO <body> by UserMenu, and positioned from the trigger's bounding
+ * rect (position/top/right are set inline). It is NOT laid out relative to the
+ * header any more, which is the whole point:
+ *
+ *   .cloistr-header is position:sticky WITH a z-index, so it creates a stacking
+ *   context. Anything rendered inside it — this menu included — is painted
+ *   within that context at the HEADER's layer (50), and its own z-index is only
+ *   ever compared against its header siblings. App content above 50 therefore
+ *   covered the open menu, and no value here could change that. Verified in
+ *   Chrome 149: z-index 100 covered, 99999 covered, position:fixed covered,
+ *   portaled to <body> on top. See src/lib/overlayAnchor.ts.
+ *
+ * Now that it lands in the ROOT stacking context, this token finally means what
+ * the scale in variables.css says it means. Do not "fix" a future layering
+ * report by raising it — check whether the overlay is trapped in a context
+ * first.
+ */
 .cloistr-user-menu-dropdown {
-  position: absolute;
-  top: calc(100% + var(--cloistr-space-xs));
-  right: 0;
   min-width: 240px;
+  /* Fixed to the viewport, so it must not run off a short phone screen. */
+  max-height: calc(100dvh - 5rem);
   background: var(--cloistr-bg-elevated);
   border: 1px solid var(--cloistr-border);
   border-radius: var(--cloistr-radius-md);
   box-shadow: var(--cloistr-shadow-lg);
   z-index: var(--cloistr-z-dropdown);
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 .cloistr-user-menu-header {
