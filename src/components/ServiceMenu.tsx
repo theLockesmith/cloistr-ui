@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useThemeOptional, type ThemeMode } from './ThemeProvider.js';
+import { anchorBelow } from '../lib/overlayAnchor.js';
 
 export interface Service {
   /** Service identifier */
@@ -135,10 +137,21 @@ const THEME_MODES: ThemeMode[] = ['light', 'dark', 'system'];
  * Service switcher — Google-style app-grid panel.
  *
  * The trigger is a 9-dot icon (icon-only, no text label).
- * The panel is rendered at position:fixed so it escapes any overflow:hidden
- * ancestor (sidebars, scrollable regions) and floats above all app content.
- * z-index uses var(--cloistr-z-app-switcher) which sits between dropdown(100)
- * and modal(200).
+ *
+ * The panel is PORTALED to document.body and positioned from the trigger's
+ * rect. position:fixed alone was not enough and the old comment here was wrong
+ * about why: `fixed` escapes overflow clipping, but NOT a stacking context.
+ * `.cloistr-header` is position:sticky WITH a z-index, so it creates one, and a
+ * panel rendered inside it painted at the HEADER's layer (50) no matter that it
+ * asked for 150.
+ *
+ * Measured, at 375x667 and 1280x900, against page content at z-index 60: the
+ * panel opened correctly and then had everything below its top ~8px painted
+ * over by that content. Which is why it was reported as "the app menu doesn't
+ * open dynamically" -- it did open; you just could not see it.
+ *
+ * Same root cause and same fix as the profile dropdown. See lib/overlayAnchor.ts
+ * for the full evidence, including that raising the number cannot work.
  */
 export function ServiceMenu({
   services = defaultServices,
@@ -154,11 +167,9 @@ export function ServiceMenu({
   /** Recompute the panel position from the trigger's bounding rect. */
   const computePos = useCallback(() => {
     if (!triggerRef.current) return;
-    const rect = triggerRef.current.getBoundingClientRect();
-    setPanelPos({
-      top: rect.bottom + 6,
-      right: window.innerWidth - rect.right,
-    });
+    // Shared with UserMenu so both header overlays anchor identically, and so
+    // the right offset is clamped at 0 rather than going negative near an edge.
+    setPanelPos(anchorBelow(triggerRef.current.getBoundingClientRect(), window.innerWidth));
   }, []);
 
   const open = useCallback(() => {
@@ -224,7 +235,7 @@ export function ServiceMenu({
         <AppsGridIcon />
       </button>
 
-      {isOpen && panelPos && (
+      {isOpen && panelPos && typeof document !== 'undefined' && createPortal(
         <div
           ref={panelRef}
           className="cloistr-apps-panel"
@@ -282,7 +293,8 @@ export function ServiceMenu({
               </div>
             </div>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );
