@@ -96,3 +96,38 @@ describe('identity line prefers a verified NIP-05', () => {
     expect(src()).toMatch(/title=\{effectivePubkey\}/);
   });
 });
+
+describe('the collapsed control shows no name', () => {
+  it('renders the avatar alone, with no identity text beside it', () => {
+    // Operator: "we shouldn't even show that name as that menu is collapsed, we
+    // should only see our pfp, the names should only be shown when that menu is
+    // expanded." The pubkey chip used to sit next to the avatar in the trigger.
+    const s = src();
+    const trigger = /cloistr-user-menu-trigger[\s\S]*?<\/button>/.exec(s);
+    expect(trigger).toBeTruthy();
+    expect(
+      trigger![1] ?? trigger![0],
+      'the trigger must not render the pubkey/NIP-05 chip',
+    ).not.toMatch(/cloistr-user-pubkey/);
+  });
+
+  it('keeps an accessible name on the now-textless button', () => {
+    // A button whose only content is two initials in a span is not a usable
+    // control for a screen reader; removing the visible text must not remove
+    // the identity from the accessibility tree.
+    expect(src()).toMatch(/aria-label=\{`Account menu for \$\{triggerLabel\}`\}/);
+  });
+
+  it('still shows the identity once expanded', () => {
+    // The names move into the dropdown rather than disappearing.
+    expect(src()).toMatch(/cloistr-user-menu-pubkey-full/);
+  });
+});
+
+describe('identity address precedence', () => {
+  it('threads the identity domain through to the resolver', () => {
+    // Without this the component can only ever ask the signer, which is how it
+    // rendered `primary@signer.cloistr.xyz` instead of `fraiyr@cloistr.xyz`.
+    expect(src()).toMatch(/useNip05\(effectivePubkey, activeKeyName, signerUrl, identityDomain\)/);
+  });
+});

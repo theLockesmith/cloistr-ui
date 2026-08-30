@@ -8,6 +8,24 @@ import { useState, useEffect } from 'react';
  * profile drop-down to show a NIP-05 address rather than pubkey if one is
  * assigned to a key."
  *
+ * A PUBKEY CAN HAVE MORE THAN ONE VALID NIP-05, AND THE FIRST VERSION PICKED
+ * THE WRONG ONE. Both of these resolve, and both verify against the operator's
+ * pubkey ac16282f...5f62:
+ *
+ *   fraiyr@cloistr.xyz          <- the USER's identity. cloistr.xyz maps the
+ *                                  signer USERNAME to their pubkey.
+ *   primary@signer.cloistr.xyz  <- the SIGNER's per-key address. signer maps the
+ *                                  KEY NAME to the same pubkey.
+ *
+ * 0.39.0 resolved only the second, so the header confidently rendered a real,
+ * verifiable address that was not the user's. Inside an identity product a
+ * confident wrong name is worse than an obviously unresolved one: raw hex reads
+ * as "not known yet", `primary@signer...` reads as a claim.
+ *
+ * The user's address wins. The signer-issued one is kept as the fallback rather
+ * than dropped -- operator: "it should show the NIP-05 name first and foremost,
+ * but it probably should still show the signer name IF THERE IS ONE."
+ *
  * WHERE A NIP-05 COMES FROM IN THIS STACK
  * The signer serves `/.well-known/nostr.json` itself
  * (cloistr-signer internal/api/handler.go handleNIP05). A key is discoverable
@@ -59,6 +77,46 @@ const inFlight = new Map<string, Promise<string | null>>();
  * useKeySwitcherBootstrap already makes, and the same cookie the menu's central
  * logout uses.
  */
+/** Where user identity addresses live. ServiceMenu already defaults the same way. */
+export const DEFAULT_IDENTITY_DOMAIN = 'cloistr.xyz';
+
+/**
+ * signerUrl -> the signed-in user's { username, pubkey }, or null.
+ *
+ * `GET /api/v1/users/me` is reachable from ANY cloistr app with the shared
+ * session: the signer's validateAuthHeader tries the Authorization header and
+ * then falls back to the `auth_token` cookie, and it is the same function
+ * guarding /api/v1/keys -- which this module already calls cross-origin with
+ * credentials. So this needs no bearer token, no relay access and no kind:0
+ * fetch, which matters because @cloistr/ui has no nostr-tools dependency and
+ * should not grow one to render a header.
+ *
+ * One request per signer per tab.
+ */
+const userIdentities = new Map<string, Promise<{ username: string; pubkey: string } | null>>();
+
+function signerUser(signerUrl: string): Promise<{ username: string; pubkey: string } | null> {
+  const existing = userIdentities.get(signerUrl);
+  if (existing) return existing;
+
+  const task = (async () => {
+    try {
+      const res = await fetch(`${signerUrl.replace(/\/$/, '')}/api/v1/users/me`, {
+        credentials: 'include',
+      });
+      if (!res.ok) return null;
+      const body = (await res.json()) as { username?: string; pubkey?: string };
+      if (!body?.username || !body?.pubkey) return null;
+      return { username: body.username, pubkey: body.pubkey };
+    } catch {
+      return null;
+    }
+  })();
+
+  userIdentities.set(signerUrl, task);
+  return task;
+}
+
 const nameLists = new Map<string, Promise<Map<string, string>>>();
 
 function signerKeyNames(signerUrl: string): Promise<Map<string, string>> {
@@ -124,58 +182,88 @@ export function nip05Domain(signerUrl: string): string | null {
  * address and must not be shown, which is why this compares rather than
  * assuming success on a 200.
  */
+/**
+ * Verify one candidate address: the domain must map `local` back to THIS pubkey.
+ *
+ * This is the NIP-05 contract and it is also what keeps the precedence honest.
+ * A user's second key asking for `fraiyr@cloistr.xyz` gets the FIRST key's
+ * pubkey back, does not match, and correctly falls through to that key's own
+ * signer address rather than borrowing the user's identity.
+ */
+async function verifyNip05(
+  pubkey: string,
+  local: string,
+  domain: string,
+  origin: string,
+): Promise<string | null> {
+  try {
+    // AbortSignal.timeout is not in every runtime this ships to; drive the
+    // controller by hand so an unresponsive host cannot pin the request open.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), RESOLVE_TIMEOUT_MS);
+    let res: Response;
+    try {
+      res = await fetch(
+        `${origin.replace(/\/$/, '')}/.well-known/nostr.json?name=${encodeURIComponent(local)}`,
+        { signal: controller.signal },
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!res.ok) return null;
+
+    const body = (await res.json()) as { names?: Record<string, string> };
+    const mapped = body?.names?.[local];
+    if (typeof mapped !== 'string') return null;
+    // Case-insensitive: hex pubkeys are the same key in either case.
+    if (mapped.toLowerCase() !== pubkey.toLowerCase()) return null;
+
+    return `${local}@${domain}`;
+  } catch {
+    // Offline, CORS, abort, malformed JSON -- all mean "try the next candidate".
+    return null;
+  }
+}
+
+/**
+ * Resolve the address to show for a key, or null to fall back to the pubkey.
+ *
+ * Precedence, highest first:
+ *   1. the USER's identity address   <username>@<identityDomain>
+ *   2. the SIGNER's per-key address  <key name>@<signer host>
+ *   3. null -> caller renders the truncated pubkey
+ */
 export async function resolveNip05(
   pubkey: string,
   name: string | undefined | null,
   signerUrl: string,
+  identityDomain: string = DEFAULT_IDENTITY_DOMAIN,
 ): Promise<string | null> {
   if (cache.has(pubkey)) return cache.get(pubkey)!;
 
   const existing = inFlight.get(pubkey);
   if (existing) return existing;
 
-  const domain = nip05Domain(signerUrl);
-  if (!domain) {
-    cache.set(pubkey, null);
-    return null;
-  }
+  const signerHost = nip05Domain(signerUrl);
 
   const task = (async (): Promise<string | null> => {
-    try {
-      // Prefer the name the caller already has; fall back to asking the signer,
-      // which is the only path that works for apps with their own session.
-      const resolvedName =
-        name ?? (await signerKeyNames(signerUrl)).get(pubkey.toLowerCase());
-      const local = nip05LocalPart(resolvedName);
-      if (!local) return null;
-
-      // AbortSignal.timeout is not in every runtime this ships to; drive the
-      // controller by hand so an unresponsive signer cannot pin the request open.
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), RESOLVE_TIMEOUT_MS);
-      let res: Response;
-      try {
-        res = await fetch(
-          `${signerUrl.replace(/\/$/, '')}/.well-known/nostr.json?name=${encodeURIComponent(local)}`,
-          { signal: controller.signal },
-        );
-      } finally {
-        clearTimeout(timer);
-      }
-      if (!res.ok) return null;
-
-      const body = (await res.json()) as { names?: Record<string, string> };
-      const mapped = body?.names?.[local];
-
-      // Case-insensitive: hex pubkeys are the same key in either case.
-      if (typeof mapped !== 'string') return null;
-      if (mapped.toLowerCase() !== pubkey.toLowerCase()) return null;
-
-      return `${local}@${domain}`;
-    } catch {
-      // Offline, CORS, abort, malformed JSON — all mean "stay on the pubkey".
-      return null;
+    // 1. The user's own identity address. Checked FIRST: this is who the person
+    //    is, as opposed to how one of their keys is filed on a signer.
+    const me = await signerUser(signerUrl);
+    const userLocal = nip05LocalPart(me?.username);
+    if (userLocal && identityDomain) {
+      const hit = await verifyNip05(pubkey, userLocal, identityDomain, `https://${identityDomain}`);
+      if (hit) return hit;
     }
+
+    // 2. The signer-issued address for this specific key. Kept rather than
+    //    dropped, so a key with no user identity still shows a real name.
+    if (!signerHost) return null;
+    const resolvedName =
+      name ?? (await signerKeyNames(signerUrl)).get(pubkey.toLowerCase());
+    const keyLocal = nip05LocalPart(resolvedName);
+    if (!keyLocal) return null;
+    return await verifyNip05(pubkey, keyLocal, signerHost, signerUrl);
   })();
 
   inFlight.set(pubkey, task);
@@ -192,6 +280,8 @@ export async function resolveNip05(
 export function __clearNip05Cache(): void {
   cache.clear();
   inFlight.clear();
+  nameLists.clear();
+  userIdentities.clear();
 }
 
 /**
@@ -206,6 +296,7 @@ export function useNip05(
   pubkey: string | undefined | null,
   name: string | undefined | null,
   signerUrl: string,
+  identityDomain: string = DEFAULT_IDENTITY_DOMAIN,
 ): string | null {
   const [address, setAddress] = useState<string | null>(() =>
     pubkey ? cache.get(pubkey) ?? null : null,
@@ -226,7 +317,7 @@ export function useNip05(
 
     let live = true;
     setAddress(null);
-    void resolveNip05(pubkey, name, signerUrl).then((result) => {
+    void resolveNip05(pubkey, name, signerUrl, identityDomain).then((result) => {
       // Unmounted, or the active key changed while we were resolving. Dropping
       // the result is correct: writing it would label one key with another's
       // address.
@@ -235,7 +326,7 @@ export function useNip05(
     return () => {
       live = false;
     };
-  }, [pubkey, name, signerUrl]);
+  }, [pubkey, name, signerUrl, identityDomain]);
 
   return address;
 }
