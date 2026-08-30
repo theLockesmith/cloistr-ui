@@ -1,5 +1,6 @@
 stages:
   - build
+  - test
   - publish
   - trigger
 
@@ -25,6 +26,26 @@ build:
     paths:
       - dist/
     expire_in: 1 hour
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}
+    paths:
+      - node_modules/
+
+
+# These packages PUBLISHED UNTESTED until this landed: the pipeline ran
+# `npm ci && npm run build`, which is typecheck + tsc, and no suite at all.
+# Green meant "it compiled". @cloistr/ui alone has 16 consumers.
+#
+# `extends: .cloistr-rules` is load-bearing, not decoration — without it this
+# job silently does not exist in a merge-request pipeline (see the template's
+# own comment), so the gate would fire only AFTER merge, which is backwards.
+test:
+  extends: .cloistr-rules
+  stage: test
+  image: node:${NODE_VERSION}-alpine
+  script:
+    - npm ci
+    - npm test
   cache:
     key: ${CI_COMMIT_REF_SLUG}
     paths:
