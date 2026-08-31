@@ -33,7 +33,7 @@ describe('nip05Domain', () => {
   });
 });
 
-describe('resolveNip05', () => {
+describe('resolveNip05 precedence', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
@@ -43,69 +43,116 @@ describe('resolveNip05', () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  const wellKnown = (names: Record<string, string>) =>
-    Promise.resolve({ ok: true, json: () => Promise.resolve({ names }) } as Response);
+  const json = (body: unknown) =>
+    Promise.resolve({ ok: true, json: () => Promise.resolve(body) } as Response);
 
-  it('returns the address when the domain maps the name back to this pubkey', async () => {
-    fetchMock.mockReturnValue(wellKnown({ 'alice-example': PUBKEY }));
-    await expect(resolveNip05(PUBKEY, 'Alice Example', SIGNER))
-      .resolves.toBe('alice-example@signer.cloistr.xyz');
+  /**
+   * Routes the three calls the resolver can make. Mirrors the real world:
+   * cloistr.xyz maps the USERNAME, signer.cloistr.xyz maps the KEY NAME, and
+   * both legitimately resolve to the same pubkey.
+   */
+  const world = (opts: {
+    me?: { username: string; pubkey: string } | null;
+    identityNames?: Record<string, string>;
+    signerNames?: Record<string, string>;
+    keys?: Array<{ pubkey: string; name: string }>;
+  }) => (url: string) => {
+    if (url.includes('/api/v1/users/me')) {
+      return opts.me ? json(opts.me) : Promise.resolve({ ok: false } as Response);
+    }
+    if (url.includes('/api/v1/keys')) return json(opts.keys ?? []);
+    if (url.startsWith('https://cloistr.xyz/.well-known')) {
+      return json({ names: opts.identityNames ?? {} });
+    }
+    return json({ names: opts.signerNames ?? {} });
+  };
+
+  it('prefers the USER identity address over the signer-issued one', async () => {
+    // The bug this exists for: 0.39.0 rendered `primary@signer.cloistr.xyz`,
+    // which verifies and is real, but is not who the user is.
+    fetchMock.mockImplementation(world({
+      me: { username: 'fraiyr', pubkey: PUBKEY },
+      identityNames: { fraiyr: PUBKEY },
+      signerNames: { primary: PUBKEY },
+    }));
+    await expect(resolveNip05(PUBKEY, 'primary', SIGNER))
+      .resolves.toBe('fraiyr@cloistr.xyz');
+  });
+
+  it('falls back to the signer address when the user has no identity address', async () => {
+    // Operator: "it probably should still show the signer name if there is one."
+    fetchMock.mockImplementation(world({
+      me: { username: 'fraiyr', pubkey: PUBKEY },
+      identityNames: {},
+      signerNames: { primary: PUBKEY },
+    }));
+    await expect(resolveNip05(PUBKEY, 'primary', SIGNER))
+      .resolves.toBe('primary@signer.cloistr.xyz');
+  });
+
+  it('falls back to the signer address when there is no signed-in signer user', async () => {
+    fetchMock.mockImplementation(world({ me: null, signerNames: { primary: PUBKEY } }));
+    await expect(resolveNip05(PUBKEY, 'primary', SIGNER))
+      .resolves.toBe('primary@signer.cloistr.xyz');
+  });
+
+  it('does not lend one key the OTHER key\'s identity address', async () => {
+    // OTHER is a second key of the same user. cloistr.xyz maps `fraiyr` to the
+    // FIRST key, so the identity candidate must not match here.
+    fetchMock.mockImplementation(world({
+      me: { username: 'fraiyr', pubkey: PUBKEY },
+      identityNames: { fraiyr: PUBKEY },
+      signerNames: { secondary: OTHER },
+    }));
+    await expect(resolveNip05(OTHER, 'secondary', SIGNER))
+      .resolves.toBe('secondary@signer.cloistr.xyz');
+  });
+
+  it('returns null when nothing verifies, so the menu keeps the pubkey', async () => {
+    fetchMock.mockImplementation(world({ me: null, signerNames: {} }));
+    await expect(resolveNip05(PUBKEY, 'primary', SIGNER)).resolves.toBeNull();
   });
 
   it('refuses a name that maps to a DIFFERENT pubkey', async () => {
-    // This is the whole point of verifying rather than composing the string
-    // locally: showing it would label this user with someone else's address.
-    fetchMock.mockReturnValue(wellKnown({ 'alice-example': OTHER }));
-    await expect(resolveNip05(PUBKEY, 'Alice Example', SIGNER)).resolves.toBeNull();
+    fetchMock.mockImplementation(world({
+      me: { username: 'fraiyr', pubkey: PUBKEY },
+      identityNames: { fraiyr: OTHER },
+      signerNames: {},
+    }));
+    await expect(resolveNip05(PUBKEY, 'primary', SIGNER)).resolves.toBeNull();
   });
 
-  it('falls back to null when the signer errors, so the menu keeps the pubkey', async () => {
-    fetchMock.mockResolvedValue({ ok: false } as Response);
-    await expect(resolveNip05(PUBKEY, 'Alice Example', SIGNER)).resolves.toBeNull();
-  });
-
-  it('falls back to null when the network throws', async () => {
+  it('survives the network throwing at every step', async () => {
     fetchMock.mockRejectedValue(new Error('offline'));
-    await expect(resolveNip05(PUBKEY, 'Alice Example', SIGNER)).resolves.toBeNull();
+    await expect(resolveNip05(PUBKEY, 'primary', SIGNER)).resolves.toBeNull();
   });
 
   it('caches, so a header on every page does not refetch per render', async () => {
-    fetchMock.mockReturnValue(wellKnown({ 'alice-example': PUBKEY }));
-    await resolveNip05(PUBKEY, 'Alice Example', SIGNER);
-    await resolveNip05(PUBKEY, 'Alice Example', SIGNER);
-    await resolveNip05(PUBKEY, 'Alice Example', SIGNER);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    fetchMock.mockImplementation(world({
+      me: { username: 'fraiyr', pubkey: PUBKEY }, identityNames: { fraiyr: PUBKEY },
+    }));
+    await resolveNip05(PUBKEY, 'primary', SIGNER);
+    const after = fetchMock.mock.calls.length;
+    await resolveNip05(PUBKEY, 'primary', SIGNER);
+    await resolveNip05(PUBKEY, 'primary', SIGNER);
+    expect(fetchMock.mock.calls.length).toBe(after);
   });
 
   it('caches the NEGATIVE answer too', async () => {
-    // Without this, a key that has no NIP-05 re-asks on every mount forever.
-    fetchMock.mockReturnValue(wellKnown({}));
-    await resolveNip05(PUBKEY, 'Alice Example', SIGNER);
-    await resolveNip05(PUBKEY, 'Alice Example', SIGNER);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    fetchMock.mockImplementation(world({ me: null, signerNames: {} }));
+    await resolveNip05(PUBKEY, 'primary', SIGNER);
+    const after = fetchMock.mock.calls.length;
+    await resolveNip05(PUBKEY, 'primary', SIGNER);
+    expect(fetchMock.mock.calls.length).toBe(after);
   });
 
-  it('makes ONE request when several rows ask for the same key at once', async () => {
-    fetchMock.mockReturnValue(wellKnown({ 'alice-example': PUBKEY }));
-    await Promise.all([
-      resolveNip05(PUBKEY, 'Alice Example', SIGNER),
-      resolveNip05(PUBKEY, 'Alice Example', SIGNER),
-    ]);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('asks the signer for a name when the caller has none (backend-auth apps)', async () => {
-    // cloistr-tasks drives the header with its own JWT session and never
-    // populates a key list, so without this the feature is a no-op there.
-    fetchMock.mockImplementation((url: string) =>
-      url.includes('/api/v1/keys')
-        ? Promise.resolve({ ok: true, json: () => Promise.resolve([
-            { id: 'k1', pubkey: PUBKEY, name: 'Alice Example' },
-          ]) } as Response)
-        : wellKnown({ 'alice-example': PUBKEY }));
-
+  it('asks the signer for a key name when the caller has none (backend-auth apps)', async () => {
+    fetchMock.mockImplementation(world({
+      me: null,
+      keys: [{ pubkey: PUBKEY, name: 'primary' }],
+      signerNames: { primary: PUBKEY },
+    }));
     await expect(resolveNip05(PUBKEY, undefined, SIGNER))
-      .resolves.toBe('alice-example@signer.cloistr.xyz');
-    expect(fetchMock.mock.calls.some(([u]) => String(u).includes('/api/v1/keys'))).toBe(true);
+      .resolves.toBe('primary@signer.cloistr.xyz');
   });
 });

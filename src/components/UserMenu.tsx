@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useNostrAuth } from '../auth/index.js';
 import { useSharedSessionMaybe } from './SharedAuthProvider.js';
 import { anchorBelow, type OverlayAnchor } from '../lib/overlayAnchor.js';
-import { useNip05 } from '../lib/nip05.js';
+import { useNip05, DEFAULT_IDENTITY_DOMAIN } from '../lib/nip05.js';
 
 // Lazy load SettingsModal for zero overhead until user clicks
 const SettingsModal = lazy(() => import('./SettingsModal.js'));
@@ -23,6 +23,27 @@ export interface UserMenuProps {
   onLogout?: () => void;
   /** Signer base URL for central logout (defaults to signer.cloistr.xyz) */
   signerUrl?: string;
+  /**
+   * Domain that serves user identity addresses, i.e. the `cloistr.xyz` in
+   * `fraiyr@cloistr.xyz`. Self-hosted deployments override it.
+   */
+  identityDomain?: string;
+  /**
+   * The user's canonical NIP-05, from their kind:0 metadata. Rendered VERBATIM
+   * and outranking everything this component can work out for itself.
+   *
+   * This exists because kind:0 is the canonical source and @cloistr/ui cannot
+   * read it: the package has no relay access and its only runtime dependencies
+   * are qrcode and @types/qrcode. Putting a relay client in the shared header
+   * package would push that cost into all 16 consumers. Apps that already hold
+   * profile metadata (via @cloistr/collab-common, which has nostr-tools) pass it
+   * here instead.
+   *
+   * Deliberately NOT verified: kind:0 is the user's own statement about their
+   * identity, and the caller has already done the work of fetching it. Apps must
+   * not pass a value from an untrusted third party here.
+   */
+  nip05?: string;
   /**
    * Callback invoked when the user clicks "Add account". If not provided, the
    * Add account item is rendered as a disabled stub (full external-add is a later
@@ -46,6 +67,8 @@ export function UserMenu({
   method,
   onLogout,
   signerUrl = 'https://signer.cloistr.xyz',
+  identityDomain = DEFAULT_IDENTITY_DOMAIN,
+  nip05,
   onSignIn,
 }: UserMenuProps) {
   const { authState, disconnect, setActiveKey } = useNostrAuth();
@@ -120,7 +143,7 @@ export function UserMenu({
   const activeKeyName = authState.keys.find((k) => k.pubkey === effectivePubkey)?.name;
   // Called before the early return below: hook order must not depend on whether
   // the user is signed in.
-  const activeNip05 = useNip05(effectivePubkey, activeKeyName, signerUrl);
+  const activeNip05 = useNip05(effectivePubkey, activeKeyName, signerUrl, identityDomain);
 
   // Central logout: best-effort call to the signer to revoke the shared session
   // cookie, then fall through to the local disconnect/onLogout.
@@ -152,8 +175,11 @@ export function UserMenu({
   // NIP-05 when the domain vouches for one, hex otherwise. `activeNip05` is null
   // until resolution finishes, so the identity is never blank and never flashes
   // empty — it upgrades in place.
-  const triggerLabel = activeNip05 ?? shortPubkey;
-  const fullLabel = activeNip05 ?? `${effectivePubkey.slice(0, 16)}...`;
+  // Precedence: the caller's kind:0 address, then whatever we could verify for
+  // ourselves, then hex. Never blank.
+  const resolvedAddress = nip05 ?? activeNip05;
+  const triggerLabel = resolvedAddress ?? shortPubkey;
+  const fullLabel = resolvedAddress ?? `${effectivePubkey.slice(0, 16)}...`;
 
   const dropdown = (
         <div
@@ -258,11 +284,17 @@ export function UserMenu({
         }}
         aria-expanded={isOpen}
         aria-haspopup="menu"
+        /* The collapsed control is the avatar ALONE -- operator: "we shouldn't
+           even show that name as that menu is collapsed, we should only see our
+           pfp, the names should only be shown when that menu is expanded."
+           With no visible text the button needs an accessible name, and a title
+           so the identity is still recoverable on hover. */
+        aria-label={`Account menu for ${triggerLabel}`}
+        title={triggerLabel}
       >
         <span className="cloistr-user-avatar">
           {effectivePubkey.slice(0, 2).toUpperCase()}
         </span>
-        <span className="cloistr-user-pubkey" title={effectivePubkey}>{triggerLabel}</span>
       </button>
 
       {/*

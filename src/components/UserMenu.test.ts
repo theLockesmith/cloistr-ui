@@ -80,8 +80,8 @@ describe('identity line prefers a verified NIP-05', () => {
     // A user who cannot see who they are logged in as is worse off than one
     // seeing hex, so every NIP-05 read is `?? <pubkey form>`.
     const s = src();
-    expect(s).toMatch(/activeNip05 \?\? shortPubkey/);
-    expect(s).toMatch(/activeNip05 \?\? `\$\{effectivePubkey\.slice\(0, 16\)\}\.\.\.`/);
+    expect(s).toMatch(/resolvedAddress \?\? shortPubkey/);
+    expect(s).toMatch(/resolvedAddress \?\? `\$\{effectivePubkey\.slice\(0, 16\)\}\.\.\.`/);
   });
 
   it('gives the account switcher the same treatment as the header line', () => {
@@ -94,5 +94,51 @@ describe('identity line prefers a verified NIP-05', () => {
     // The pubkey is the identity; the NIP-05 is a label for it. Users need to
     // be able to recover the hex without signing out.
     expect(src()).toMatch(/title=\{effectivePubkey\}/);
+  });
+});
+
+describe('the collapsed control shows no name', () => {
+  it('renders the avatar alone, with no identity text beside it', () => {
+    // Operator: "we shouldn't even show that name as that menu is collapsed, we
+    // should only see our pfp, the names should only be shown when that menu is
+    // expanded." The pubkey chip used to sit next to the avatar in the trigger.
+    const s = src();
+    const trigger = /cloistr-user-menu-trigger[\s\S]*?<\/button>/.exec(s);
+    expect(trigger).toBeTruthy();
+    expect(
+      trigger![1] ?? trigger![0],
+      'the trigger must not render the pubkey/NIP-05 chip',
+    ).not.toMatch(/cloistr-user-pubkey/);
+  });
+
+  it('keeps an accessible name on the now-textless button', () => {
+    // A button whose only content is two initials in a span is not a usable
+    // control for a screen reader; removing the visible text must not remove
+    // the identity from the accessibility tree.
+    expect(src()).toMatch(/aria-label=\{`Account menu for \$\{triggerLabel\}`\}/);
+  });
+
+  it('still shows the identity once expanded', () => {
+    // The names move into the dropdown rather than disappearing.
+    expect(src()).toMatch(/cloistr-user-menu-pubkey-full/);
+  });
+});
+
+describe('identity address precedence', () => {
+  it('threads the identity domain through to the resolver', () => {
+    // Without this the component can only ever ask the signer, which is how it
+    // rendered `primary@signer.cloistr.xyz` instead of `fraiyr@cloistr.xyz`.
+    expect(src()).toMatch(/useNip05\(effectivePubkey, activeKeyName, signerUrl, identityDomain\)/);
+  });
+});
+
+describe('kind:0 nip05 outranks anything derived', () => {
+  it('renders a caller-supplied nip05 above the derived address', () => {
+    // kind:0 is canonical. @cloistr/ui cannot read it (no relay access, no
+    // nostr-tools), so an app that already holds profile metadata passes it in
+    // and it wins. No hardcoding, no special-casing a domain: when the user
+    // updates their kind:0 the header follows on its own.
+    expect(src()).toMatch(/const resolvedAddress = nip05 \?\? activeNip05;/);
+    expect(src()).toMatch(/resolvedAddress \?\? shortPubkey/);
   });
 });
