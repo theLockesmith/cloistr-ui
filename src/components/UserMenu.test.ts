@@ -80,8 +80,8 @@ describe('identity line prefers a verified NIP-05', () => {
     // A user who cannot see who they are logged in as is worse off than one
     // seeing hex, so every NIP-05 read is `?? <pubkey form>`.
     const s = src();
-    expect(s).toMatch(/activeNip05 \?\? shortPubkey/);
-    expect(s).toMatch(/activeNip05 \?\? `\$\{effectivePubkey\.slice\(0, 16\)\}\.\.\.`/);
+    expect(s).toMatch(/resolvedAddress \?\? shortPubkey/);
+    expect(s).toMatch(/resolvedAddress \?\? `\$\{effectivePubkey\.slice\(0, 16\)\}\.\.\.`/);
   });
 
   it('gives the account switcher the same treatment as the header line', () => {
@@ -129,5 +129,16 @@ describe('identity address precedence', () => {
     // Without this the component can only ever ask the signer, which is how it
     // rendered `primary@signer.cloistr.xyz` instead of `fraiyr@cloistr.xyz`.
     expect(src()).toMatch(/useNip05\(effectivePubkey, activeKeyName, signerUrl, identityDomain\)/);
+  });
+});
+
+describe('kind:0 nip05 outranks anything derived', () => {
+  it('renders a caller-supplied nip05 above the derived address', () => {
+    // kind:0 is canonical. @cloistr/ui cannot read it (no relay access, no
+    // nostr-tools), so an app that already holds profile metadata passes it in
+    // and it wins. No hardcoding, no special-casing a domain: when the user
+    // updates their kind:0 the header follows on its own.
+    expect(src()).toMatch(/const resolvedAddress = nip05 \?\? activeNip05;/);
+    expect(src()).toMatch(/resolvedAddress \?\? shortPubkey/);
   });
 });
