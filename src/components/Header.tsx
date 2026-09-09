@@ -15,6 +15,14 @@ export interface HeaderAuth {
   pubkey?: string;
   /** Auth method label ('nip07' | 'nip46') */
   method?: string;
+  /**
+   * The user's canonical NIP-05 from their kind:0 metadata. Passed verbatim
+   * to UserMenu where it outranks both the `.well-known` lookup and the
+   * signer-published address. Apps that hold kind:0 data (via collab-common
+   * or their own relay subscription) supply it here; apps without relay
+   * access leave it undefined and UserMenu falls back to its own resolution.
+   */
+  nip05?: string;
   /** Called when the Sign In button is clicked */
   onSignIn?: () => void;
   /** Called when the user signs out */
@@ -106,6 +114,7 @@ export function Header({
               settingsUrl={settingsUrl}
               pubkey={auth?.pubkey}
               method={auth?.method}
+              nip05={auth?.nip05}
               onLogout={auth?.onLogout}
               signerUrl={signerUrl}
               onSignIn={
