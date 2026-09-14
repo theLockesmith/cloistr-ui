@@ -62,3 +62,20 @@ export type { AppShellProps, MenuSection, MenuItem, MenuEntry, MenuSeparator } f
 
 export { classifyRestoreOutcome } from './SharedAuthProvider.js';
 export type { RestoreOutcome } from './SharedAuthProvider.js';
+
+export {
+  ContextMenu,
+  useContextMenu,
+  useContextMenuTrigger,
+  contextMenuClasses,
+  contextMenuItemClasses,
+  clampToViewport,
+} from './ContextMenu.js';
+export type {
+  ContextMenuEntry,
+  ContextMenuPosition,
+  ContextMenuProps,
+  UseContextMenuReturn,
+  ContextMenuTriggerOptions,
+  ContextMenuTriggerHandlers,
+} from './ContextMenu.js';
