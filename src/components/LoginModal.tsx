@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import QRCode from 'qrcode';
 import { useNostrAuth, useAuthHelpers, isValidBunkerUrl } from '../auth/index.js';
 import { isValidHumanName } from '../lib/username.js';
+import { approveAfterListening } from '../lib/approveAfterListening';
 
 /** Data passed to onSession callback in session mode */
 export interface SessionData {
@@ -269,12 +270,12 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
       setNostrConnectUri(uri);
       setScreen('pending');
       try {
-        const sessionRes = await fetch(`${signerUrl}/api/v1/nostrconnect/session`, {
+        const sessionRes = await approveAfterListening(session, () => fetch(`${signerUrl}/api/v1/nostrconnect/session`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify({ uri, key_id: capturedKeyId }),
-        });
+        }));
         if (sessionRes.status === 401) {
           // Session expired between the probe and now — show manual paste
           setPendingIsManual(true);
@@ -549,12 +550,12 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
         setNostrConnectUri(uri);
         setScreen('pending');
         try {
-          const approveRes = await fetch(`${api}/nostrconnect`, {
+          const approveRes = await approveAfterListening(session, () => fetch(`${api}/nostrconnect`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
             credentials: 'include',
             body: JSON.stringify({ uri, key_id: keyId }),
-          });
+          }));
           if (!approveRes.ok) {
             const b = await approveRes.json().catch(() => ({}));
             setLocalError((b as { error?: string }).error ?? 'Approval failed');
@@ -649,12 +650,12 @@ export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloist
         setNostrConnectUri(uri);
         setScreen('pending');
         try {
-          const approveRes = await fetch(`${api}/nostrconnect`, {
+          const approveRes = await approveAfterListening(session, () => fetch(`${api}/nostrconnect`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
             credentials: 'include',
             body: JSON.stringify({ uri, key_id: keyId }),
-          });
+          }));
           if (!approveRes.ok) {
             const b = await approveRes.json().catch(() => ({}));
             setLocalError((b as { error?: string }).error ?? 'Approval failed');
