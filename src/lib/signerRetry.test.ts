@@ -5,7 +5,7 @@ import {
   retryDelay,
   signerFailureMessage,
   withSignerRetry,
-} from './signerRetry';
+} from './signerRetry.js';
 
 /** Mimics @cloistr/auth's Nip46Error shape without importing it. */
 function signerError(code: string, message = 'boom') {

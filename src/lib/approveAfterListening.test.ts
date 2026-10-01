@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { approveAfterListening } from './approveAfterListening';
+import { approveAfterListening } from './approveAfterListening.js';
 
 function deferred() {
   let resolve!: () => void, reject!: (e: unknown) => void;

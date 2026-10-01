@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import QRCode from 'qrcode';
 import { useNostrAuth, useAuthHelpers, isValidBunkerUrl } from '../auth/index.js';
 import { isValidHumanName } from '../lib/username.js';
-import { approveAfterListening } from '../lib/approveAfterListening';
+import { approveAfterListening } from '../lib/approveAfterListening.js';
 
 /** Data passed to onSession callback in session mode */
 export interface SessionData {
