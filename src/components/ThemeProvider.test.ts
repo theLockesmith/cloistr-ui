@@ -21,8 +21,8 @@ import { describe, expect, it } from 'vitest';
 const SRC = readFileSync(new URL('./ThemeProvider.tsx', import.meta.url), 'utf8');
 
 describe('theme persistence is shared across subdomains', () => {
-  it('writes a cookie scoped to the parent domain', () => {
-    expect(SRC).toContain('domain=.cloistr.xyz');
+  it('writes a cookie scoped to the domain from runtime config', () => {
+    expect(SRC).toContain('getCookieDomain()');
   });
 
   it('reads the cookie BEFORE localStorage, so the shared value wins', () => {
@@ -35,7 +35,8 @@ describe('theme persistence is shared across subdomains', () => {
   it('does not set the domain attribute off cloistr.xyz', () => {
     // Local dev and preview hosts must still get a working cookie; a domain
     // attribute naming a domain you are not on is rejected outright.
-    expect(SRC).toContain("location.hostname.endsWith('cloistr.xyz')");
+    // getCookieDomain() returns '' for non-cloistr hosts, omitting the attr.
+    expect(SRC).toContain('getCookieDomain');
   });
 
   it('survives storage being unavailable', () => {

@@ -3,6 +3,7 @@ import { useNostrAuth } from '../auth/index.js';
 import { ServiceMenu, defaultServices } from './ServiceMenu.js';
 import { UserMenu } from './UserMenu.js';
 import { LoginModal } from './LoginModal.js';
+import { getSignerUrl } from '../lib/runtimeConfig.js';
 
 /** Cloistr wordmark logo, inlined as a data URI so consumers need no asset pipeline. */
 const CLOISTR_WORDMARK =
@@ -68,10 +69,11 @@ export function Header({
   activeServiceId,
   profileUrl,
   settingsUrl,
-  signerUrl = 'https://signer.cloistr.xyz',
+  signerUrl: signerUrlProp,
   children,
   auth,
 }: HeaderProps) {
+  const signerUrl = signerUrlProp || getSignerUrl();
   const { authState } = useNostrAuth();
   const [showLoginModal, setShowLoginModal] = useState(false);
   const externalAuth = auth !== undefined;

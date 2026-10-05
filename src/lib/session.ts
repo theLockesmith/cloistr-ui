@@ -1,11 +1,13 @@
 /**
  * Cross-subdomain session management for Cloistr
  *
- * Uses cookies on .cloistr.xyz domain to share auth state across all services.
- * This allows single sign-on: login once on any service, authenticated everywhere.
+ * Uses cookies scoped to the deployment's domain to share auth state across all
+ * services. The domain is read from the container runtime config so the same
+ * image works in production (.cloistr.xyz) and staging (.staging.cloistr.xyz).
  */
 
 import type { AuthMethod } from '@cloistr/auth';
+import { getCookieDomain, isCloistrHostname } from './runtimeConfig.js';
 
 export interface SharedSession {
   method: AuthMethod;
@@ -77,7 +79,7 @@ export function setSessionTTL(ttl: SessionTTL): void {
 function getCookieConfig() {
   const ttl = getSessionTTL();
   return {
-    domain: '.cloistr.xyz',
+    domain: getCookieDomain(),
     path: '/',
     maxAge: SESSION_TTL_OPTIONS[ttl],
     secure: true,
@@ -93,12 +95,11 @@ function isBrowser(): boolean {
 }
 
 /**
- * Check if running on a cloistr.xyz domain
+ * Check if running on a cloistr.xyz domain (any environment).
  */
 export function isCloistrDomain(): boolean {
   if (!isBrowser()) return false;
-  return window.location.hostname.endsWith('cloistr.xyz') ||
-         window.location.hostname === 'cloistr.xyz';
+  return isCloistrHostname();
 }
 
 /**
@@ -107,8 +108,9 @@ export function isCloistrDomain(): boolean {
 function buildCookieWithMaxAge(name: string, value: string, maxAge: number): string {
   const parts = [`${name}=${encodeURIComponent(value)}`];
 
-  if (isCloistrDomain()) {
-    parts.push('domain=.cloistr.xyz');
+  const domain = getCookieDomain();
+  if (domain) {
+    parts.push(`domain=${domain}`);
   }
 
   parts.push('path=/');
@@ -157,9 +159,10 @@ function setCookie(name: string, value: string): void {
 function deleteCookie(name: string): void {
   if (!isBrowser()) return;
 
-  // Delete with domain (for cloistr.xyz)
-  if (isCloistrDomain()) {
-    document.cookie = `${name}=; domain=.cloistr.xyz; path=/; max-age=0`;
+  // Delete with domain (for cloistr.xyz / staging.cloistr.xyz)
+  const domain = getCookieDomain();
+  if (domain) {
+    document.cookie = `${name}=; domain=${domain}; path=/; max-age=0`;
   }
   // Also delete without domain (for local dev)
   document.cookie = `${name}=; path=/; max-age=0`;
