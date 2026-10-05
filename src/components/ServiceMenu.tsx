@@ -33,10 +33,7 @@ export const defaultServices: Service[] = [
   { id: 'identity', name: 'Identity', url: 'https://me.cloistr.xyz' },
   { id: 'signer', name: 'Signer', url: 'https://signer.cloistr.xyz' },
   { id: 'space', name: 'Space', url: 'https://space.cloistr.xyz' },
-  { id: 'docs', name: 'Docs', url: 'https://docs.cloistr.xyz' },
-  { id: 'sheets', name: 'Sheets', url: 'https://sheets.cloistr.xyz' },
-  { id: 'whiteboard', name: 'Whiteboard', url: 'https://whiteboard.cloistr.xyz' },
-  { id: 'slides', name: 'Slides', url: 'https://slides.cloistr.xyz' },
+  { id: 'pages', name: 'Pages', url: 'https://pages.cloistr.xyz' },
   { id: 'files', name: 'Files', url: 'https://stash.cloistr.xyz' },
   { id: 'email', name: 'Email', url: 'https://mail.cloistr.xyz' },
   { id: 'tasks', name: 'Tasks', url: 'https://tasks.cloistr.xyz' },
@@ -63,14 +60,8 @@ const SERVICE_ICONS: Record<string, string> = {
     'M12.65 10A5.99 5.99 0 0 0 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6a5.99 5.99 0 0 0 5.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z',
   space:
     'M20 6h-4V4c0-1.11-.89-2-2-2h-4c-1.11 0-2 .89-2 2v2H4c-1.11 0-1.99.89-1.99 2L2 19c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2zm-6 0h-4V4h4v2z',
-  docs:
-    'M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z',
-  sheets:
-    'M20 2H4c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM8 20H4v-4h4v4zm0-6H4v-4h4v4zm0-6H4V4h4v4zm6 12h-4v-4h4v4zm0-6h-4v-4h4v4zm0-6h-4V4h4v4zm6 12h-4v-4h4v4zm0-6h-4v-4h4v4zm0-6h-4V4h4v4z',
-  whiteboard:
-    'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.9959.9959 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z',
-  slides:
-    'M10 8v8l5-4-5-4zm9-5H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14z',
+  pages:
+    'M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z',
   files: 'M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z',
   photos:
     'M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z',
