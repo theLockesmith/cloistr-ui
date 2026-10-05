@@ -21,6 +21,30 @@ import { describe, it, expect } from 'vitest';
  */
 const src = () => readFileSync(resolve(__dirname, './ServiceMenu.tsx'), 'utf8');
 
+describe('defaultServices launcher entries', () => {
+  it('includes Pages', async () => {
+    const { defaultServices } = await import('./ServiceMenu.js');
+    const ids = defaultServices.map((s: { id: string }) => s.id);
+    expect(ids).toContain('pages');
+  });
+
+  it('does not include the removed office apps (Docs, Sheets, Slides, Whiteboard)', async () => {
+    const { defaultServices } = await import('./ServiceMenu.js');
+    const ids = defaultServices.map((s: { id: string }) => s.id);
+    expect(ids).not.toContain('docs');
+    expect(ids).not.toContain('sheets');
+    expect(ids).not.toContain('slides');
+    expect(ids).not.toContain('whiteboard');
+  });
+
+  it('Pages points to pages.cloistr.xyz', async () => {
+    const { defaultServices } = await import('./ServiceMenu.js');
+    const pages = defaultServices.find((s: { id: string }) => s.id === 'pages');
+    expect(pages).toBeDefined();
+    expect(pages!.url).toBe('https://pages.cloistr.xyz');
+  });
+});
+
 describe('app switcher escapes the header stacking context', () => {
   it('portals the panel to document.body', () => {
     expect(src()).toMatch(/createPortal\([\s\S]*?document\.body/);
