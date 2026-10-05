@@ -3,6 +3,7 @@ import QRCode from 'qrcode';
 import { useNostrAuth, useAuthHelpers, isValidBunkerUrl } from '../auth/index.js';
 import { isValidHumanName } from '../lib/username.js';
 import { approveAfterListening } from '../lib/approveAfterListening.js';
+import { getSignerUrl } from '../lib/runtimeConfig.js';
 
 /** Data passed to onSession callback in session mode */
 export interface SessionData {
@@ -91,7 +92,8 @@ function LightningQr({ lnurl }: LightningQrProps) {
   return <canvas ref={canvasRef} className="cloistr-lightning-qr" />;
 }
 
-export function LoginModal({ isOpen, onClose, signerUrl = 'https://signer.cloistr.xyz', mode = 'connect', onSession }: LoginModalProps) {
+export function LoginModal({ isOpen, onClose, signerUrl: signerUrlProp, mode = 'connect', onSession }: LoginModalProps) {
+  const signerUrl = signerUrlProp || getSignerUrl();
   const { connectNip07, connectNip46, connectViaNostrConnect, authState } = useNostrAuth();
   const { isNip07Available } = useAuthHelpers();
 

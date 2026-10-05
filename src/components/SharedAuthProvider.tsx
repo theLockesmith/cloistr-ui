@@ -13,6 +13,7 @@
  * BackendAuthProvider so JWT apps get identical multi-identity behaviour.
  */
 
+import { getSignerUrl } from '../lib/runtimeConfig.js';
 import { withSignerRetry } from '../lib/signerRetry.js';
 import { useEffect, useCallback, useRef, createContext, useContext, useMemo, ReactNode, useState} from 'react';
 import {
@@ -206,11 +207,12 @@ function SessionSyncInner({
   children,
   autoConnect,
   onAutoConnectComplete,
-  signerUrl = 'https://signer.cloistr.xyz',
+  signerUrl: signerUrlProp,
   resolveSignerRef,
 }: SharedAuthProviderProps & {
   resolveSignerRef: React.MutableRefObject<((identity: KeyIdentity) => Promise<SignerInterface>) | undefined>;
 }) {
+  const signerUrl = signerUrlProp || getSignerUrl();
   const { authState } = useNostrAuth();
   const { isAuthenticated } = useAuthHelpers();
   const autoConnectAttempted = useRef(false);

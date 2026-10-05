@@ -2,6 +2,8 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useThemeOptional, type ThemeMode } from './ThemeProvider.js';
 import { anchorBelow } from '../lib/overlayAnchor.js';
+import { getServiceUrlOverrides, getBaseDomain } from '../lib/runtimeConfig.js';
+import { createServicesForDomain } from '../lib/services.js';
 
 export interface Service {
   /** Service identifier */
@@ -154,10 +156,14 @@ const THEME_MODES: ThemeMode[] = ['light', 'dark', 'system'];
  * for the full evidence, including that raising the number cannot work.
  */
 export function ServiceMenu({
-  services = defaultServices,
+  services: servicesProp,
   activeServiceId,
-  baseDomain: _baseDomain = 'cloistr.xyz',
+  baseDomain: baseDomainProp,
 }: ServiceMenuProps) {
+  const baseDomain = baseDomainProp || getBaseDomain();
+  const overrides = getServiceUrlOverrides();
+  const baseServices = servicesProp || (baseDomain === 'cloistr.xyz' ? defaultServices : createServicesForDomain(baseDomain));
+  const services = baseServices.map(s => overrides[s.id] ? { ...s, url: overrides[s.id] } : s);
   const [isOpen, setIsOpen] = useState(false);
   const [panelPos, setPanelPos] = useState<{ top: number; right: number } | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);

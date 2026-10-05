@@ -11,6 +11,7 @@
  *   </ThemeProvider>
  */
 
+import { getCookieDomain } from '../lib/runtimeConfig.js';
 import {
   createContext,
   useContext,
@@ -71,9 +72,8 @@ function writeTheme(mode: ThemeMode): void {
     // Not HttpOnly: the client must read it. SameSite=Lax is enough because a
     // theme preference is not a credential. On a non-cloistr host (local dev,
     // preview) the domain attribute is omitted so the cookie still applies.
-    const onCloistr =
-      typeof location !== 'undefined' && location.hostname.endsWith('cloistr.xyz');
-    const domain = onCloistr ? '; domain=.cloistr.xyz' : '';
+    const cookieDomain = getCookieDomain();
+    const domain = cookieDomain ? `; domain=${cookieDomain}` : '';
     const secure = typeof location !== 'undefined' && location.protocol === 'https:' ? '; secure' : '';
     document.cookie = `${STORAGE_KEY}=${encodeURIComponent(mode)}${domain}; path=/; max-age=${COOKIE_MAX_AGE}; samesite=lax${secure}`;
   } catch {

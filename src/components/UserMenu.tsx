@@ -4,6 +4,7 @@ import { useNostrAuth } from '../auth/index.js';
 import { useSharedSessionMaybe } from './SharedAuthProvider.js';
 import { anchorBelow, type OverlayAnchor } from '../lib/overlayAnchor.js';
 import { useNip05, DEFAULT_IDENTITY_DOMAIN } from '../lib/nip05.js';
+import { getSignerUrl } from '../lib/runtimeConfig.js';
 
 // Lazy load SettingsModal for zero overhead until user clicks
 const SettingsModal = lazy(() => import('./SettingsModal.js'));
@@ -66,11 +67,12 @@ export function UserMenu({
   pubkey,
   method,
   onLogout,
-  signerUrl = 'https://signer.cloistr.xyz',
+  signerUrl: signerUrlProp,
   identityDomain = DEFAULT_IDENTITY_DOMAIN,
   nip05,
   onSignIn,
 }: UserMenuProps) {
+  const signerUrl = signerUrlProp || getSignerUrl();
   const { authState, disconnect, setActiveKey } = useNostrAuth();
   const sharedSession = useSharedSessionMaybe();
   const pin = sharedSession?.pin ?? null;

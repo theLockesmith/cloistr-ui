@@ -37,6 +37,7 @@ import {
 } from 'react';
 import { nip19, type UnsignedEvent, type Event as NostrEvent } from 'nostr-tools';
 import { verifyEvent } from 'nostr-tools/pure';
+import { getSignerUrl } from '../lib/runtimeConfig.js';
 import {
   AuthProvider,
   connectNip07,
@@ -771,7 +772,7 @@ const DEFAULT_CONFIG: Required<BackendAuthConfig> = {
   refreshEndpoint: '/auth/refresh',
   tokenInfoEndpoint: '/auth/token-info',
   refreshBeforeExpiryMinutes: 2,
-  signerUrl: 'https://signer.cloistr.xyz',
+  signerUrl: getSignerUrl(),
 };
 
 /**
