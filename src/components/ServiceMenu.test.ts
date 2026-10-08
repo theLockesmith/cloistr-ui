@@ -21,6 +21,31 @@ import { describe, it, expect } from 'vitest';
  */
 const src = () => readFileSync(resolve(__dirname, './ServiceMenu.tsx'), 'utf8');
 
+describe('ServiceMenu import cycle', () => {
+  it('does not throw when ServiceMenu is imported first in a fresh module graph', async () => {
+    await expect(import('./ServiceMenu.js')).resolves.toBeDefined();
+  });
+
+  it('defaultServices is a non-empty array after import', async () => {
+    const mod = await import('./ServiceMenu.js');
+    expect(Array.isArray(mod.defaultServices)).toBe(true);
+    expect(mod.defaultServices.length).toBeGreaterThan(0);
+  });
+
+  it('dist/components/ServiceMenu.js loads without "Cannot access before initialization"', () => {
+    // The real import cycle manifests in Node ESM, not vitest's transform.
+    // Regression: 0.44.0-0.44.1 had ServiceMenu → lib/services → ServiceMenu
+    // that threw "Cannot access 'defaultServices' before initialization"
+    // when ServiceMenu was the entry point.
+    const { execSync } = require('node:child_process');
+    const root = resolve(__dirname, '../..');
+    execSync(
+      `node -e "import('./dist/components/ServiceMenu.js').then(() => process.exit(0)).catch(e => { console.error(e.message); process.exit(1); })"`,
+      { cwd: root, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+    );
+  });
+});
+
 describe('defaultServices launcher entries', () => {
   it('includes Pages', async () => {
     const { defaultServices } = await import('./ServiceMenu.js');
