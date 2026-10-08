@@ -1,14 +1,6 @@
-import type { Service } from '../components/ServiceMenu.js';
-import { defaultServices } from '../components/ServiceMenu.js';
+import type { Service } from './service-data.js';
+import { defaultServices } from './service-data.js';
 
-/**
- * Canonical Cloistr services list. The single source of truth is
- * `defaultServices` in ServiceMenu (the list the app-switcher renders); this is
- * a re-export so lib consumers and the grid can never drift. They HAD drifted —
- * this list used to still show Relay/Photos, point Files at the wrong host, use
- * emoji icons, and omit Tasks/Vault/Space/Sheets/Slides/Whiteboard/Email.
- * Icons are supplied by ServiceMenu's SVG glyph set, keyed by service id.
- */
 export const cloistrServices: Service[] = defaultServices;
 
 /**

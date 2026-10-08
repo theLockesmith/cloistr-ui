@@ -4,19 +4,11 @@ import { useThemeOptional, type ThemeMode } from './ThemeProvider.js';
 import { anchorBelow } from '../lib/overlayAnchor.js';
 import { getServiceUrlOverrides, getBaseDomain } from '../lib/runtimeConfig.js';
 import { createServicesForDomain } from '../lib/services.js';
+import { defaultServices } from '../lib/service-data.js';
+import type { Service } from '../lib/service-data.js';
 
-export interface Service {
-  /** Service identifier */
-  id: string;
-  /** Display name */
-  name: string;
-  /** URL to the service */
-  url: string;
-  /** Optional icon (emoji or URL) */
-  icon?: string;
-  /** Whether this is the current service */
-  active?: boolean;
-}
+export { defaultServices };
+export type { Service };
 
 export interface ServiceMenuProps {
   /** List of services to display */
@@ -26,22 +18,6 @@ export interface ServiceMenuProps {
   /** Base domain for services (e.g., 'cloistr.xyz') */
   baseDomain?: string;
 }
-
-/**
- * Default Cloistr services
- */
-export const defaultServices: Service[] = [
-  { id: 'home', name: 'Home', url: 'https://cloistr.xyz' },
-  { id: 'identity', name: 'Identity', url: 'https://me.cloistr.xyz' },
-  { id: 'signer', name: 'Signer', url: 'https://signer.cloistr.xyz' },
-  { id: 'space', name: 'Space', url: 'https://space.cloistr.xyz' },
-  { id: 'pages', name: 'Pages', url: 'https://pages.cloistr.xyz' },
-  { id: 'files', name: 'Files', url: 'https://stash.cloistr.xyz' },
-  { id: 'email', name: 'Email', url: 'https://mail.cloistr.xyz' },
-  { id: 'tasks', name: 'Tasks', url: 'https://tasks.cloistr.xyz' },
-  { id: 'vault', name: 'Vault', url: 'https://vault.cloistr.xyz' },
-  { id: 'discover', name: 'Discover', url: 'https://discover.cloistr.xyz' },
-];
 
 /**
  * Professional monochrome service glyphs (Material-style, single-path, drawn in
