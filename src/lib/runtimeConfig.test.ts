@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   getSignerUrl,
+  getSignerHostname,
   getCookieDomain,
   isCloistrHostname,
   getBaseDomain,
@@ -33,6 +34,24 @@ describe('getSignerUrl', () => {
       signerUrl: 'https://signer.staging.cloistr.xyz',
     });
     expect(getSignerUrl()).toBe('https://signer.staging.cloistr.xyz');
+  });
+});
+
+describe('getSignerHostname', () => {
+  it('extracts hostname from production signer URL', () => {
+    expect(getSignerHostname('https://signer.cloistr.xyz')).toBe('signer.cloistr.xyz');
+  });
+
+  it('extracts hostname from staging signer URL', () => {
+    expect(getSignerHostname('https://signer.staging.cloistr.xyz')).toBe('signer.staging.cloistr.xyz');
+  });
+
+  it('extracts hostname from custom URL with port', () => {
+    expect(getSignerHostname('http://localhost:3000')).toBe('localhost');
+  });
+
+  it('returns the input unchanged when URL is malformed', () => {
+    expect(getSignerHostname('not-a-url')).toBe('not-a-url');
   });
 });
 

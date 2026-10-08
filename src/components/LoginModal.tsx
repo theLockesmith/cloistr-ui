@@ -3,7 +3,7 @@ import QRCode from 'qrcode';
 import { useNostrAuth, useAuthHelpers, isValidBunkerUrl } from '../auth/index.js';
 import { isValidHumanName } from '../lib/username.js';
 import { approveAfterListening } from '../lib/approveAfterListening.js';
-import { getSignerUrl } from '../lib/runtimeConfig.js';
+import { getSignerUrl, getSignerHostname } from '../lib/runtimeConfig.js';
 
 /** Data passed to onSession callback in session mode */
 export interface SessionData {
@@ -788,7 +788,7 @@ export function LoginModal({ isOpen, onClose, signerUrl: signerUrlProp, mode = '
               <p className="cloistr-login-help">
                 Don&apos;t have a Nostr identity?{' '}
                 <a href={signerUrl} target="_blank" rel="noopener noreferrer">
-                  Get started at signer.cloistr.xyz
+                  Get started at {getSignerHostname(signerUrl)}
                 </a>
               </p>
             </>

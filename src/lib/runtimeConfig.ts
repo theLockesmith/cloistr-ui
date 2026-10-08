@@ -31,6 +31,10 @@ export function getSignerUrl(): string {
   return 'https://signer.cloistr.xyz';
 }
 
+export function getSignerHostname(url: string): string {
+  try { return new URL(url).hostname; } catch { return url; }
+}
+
 export function getCookieDomain(): string {
   const cfg = getRuntimeConfig();
   if (typeof cfg.cookieDomain === 'string' && cfg.cookieDomain !== '') return cfg.cookieDomain;
