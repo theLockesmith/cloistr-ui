@@ -68,6 +68,18 @@ export function getBaseDomain(): string {
   return 'cloistr.xyz';
 }
 
+export function getEnvironment(): string {
+  const cfg = getRuntimeConfig();
+  if (typeof cfg.environment === 'string' && cfg.environment !== '') return cfg.environment;
+  if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname;
+    if (hostname.endsWith('.staging.cloistr.xyz') || hostname === 'staging.cloistr.xyz') {
+      return 'staging';
+    }
+  }
+  return 'production';
+}
+
 export function getServiceUrlOverrides(): Record<string, string> {
   const cfg = getRuntimeConfig();
   if (cfg.services && typeof cfg.services === 'object') return cfg.services;
