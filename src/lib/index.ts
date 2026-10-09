@@ -61,3 +61,13 @@ export { nip05LocalPart, nip05Domain, resolveNip05, useNip05 } from './nip05.js'
 // Anchoring for header overlays that must escape the header's stacking context.
 export { anchorBelow, OVERLAY_GAP_PX } from './overlayAnchor.js';
 export type { OverlayAnchor } from './overlayAnchor.js';
+
+export { shouldFireIdentityChange, useIdentityChange } from './useIdentityChange.js';
+export type { IdentityChangeEvent } from './useIdentityChange.js';
+
+export {
+  createWriteGateState,
+  writeGateTransition,
+  useWriteGate,
+} from './useWriteGate.js';
+export type { WriteGateStatus, WriteGate } from './useWriteGate.js';
