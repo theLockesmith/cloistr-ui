@@ -7,7 +7,7 @@
  */
 
 import type { AuthMethod } from '@cloistr/auth';
-import { getCookieDomain, isCloistrHostname } from './runtimeConfig.js';
+import { getCookieDomain, isCloistrHostname, getEnvironment } from './runtimeConfig.js';
 
 export interface SharedSession {
   method: AuthMethod;
@@ -37,21 +37,28 @@ export const SESSION_TTL_LABELS: Record<SessionTTL, string> = {
 const DEFAULT_TTL: SessionTTL = '30d';
 
 /**
- * Cookie keys
+ * Cookie keys, environment-aware. Production keeps the original names;
+ * other environments (staging) insert the environment after 'cloistr_' so
+ * a browser on *.staging.cloistr.xyz never reads production session cookies
+ * that leak in via the parent .cloistr.xyz domain scope.
  */
-const COOKIE_KEYS = {
-  METHOD: 'cloistr_auth_method',
-  PUBKEY: 'cloistr_auth_pubkey',
-  BUNKER: 'cloistr_auth_bunker',
-  TTL: 'cloistr_session_ttl',
-  ACTIVE_PUBKEY: 'cloistr_auth_active_pubkey',
-} as const;
+function getCookieKeys() {
+  const env = getEnvironment();
+  const prefix = env === 'production' ? 'cloistr' : `cloistr_${env}`;
+  return {
+    METHOD: `${prefix}_auth_method`,
+    PUBKEY: `${prefix}_auth_pubkey`,
+    BUNKER: `${prefix}_auth_bunker`,
+    TTL: `${prefix}_session_ttl`,
+    ACTIVE_PUBKEY: `${prefix}_auth_active_pubkey`,
+  };
+}
 
 /**
  * Get current TTL preference or default
  */
 export function getSessionTTL(): SessionTTL {
-  const stored = getCookie(COOKIE_KEYS.TTL);
+  const stored = getCookie(getCookieKeys().TTL);
   if (stored && stored in SESSION_TTL_OPTIONS) {
     return stored as SessionTTL;
   }
@@ -64,7 +71,7 @@ export function getSessionTTL(): SessionTTL {
 export function setSessionTTL(ttl: SessionTTL): void {
   if (!isBrowser()) return;
   const maxAge = SESSION_TTL_OPTIONS[ttl];
-  document.cookie = buildCookieWithMaxAge(COOKIE_KEYS.TTL, ttl, maxAge);
+  document.cookie = buildCookieWithMaxAge(getCookieKeys().TTL, ttl, maxAge);
 
   // Refresh other session cookies with new TTL
   const session = getSharedSession();
@@ -172,13 +179,13 @@ function deleteCookie(name: string): void {
  * Save session to cross-domain cookies
  */
 export function saveSharedSession(session: SharedSession): void {
-  setCookie(COOKIE_KEYS.METHOD, session.method);
-  setCookie(COOKIE_KEYS.PUBKEY, session.pubkey);
+  setCookie(getCookieKeys().METHOD, session.method);
+  setCookie(getCookieKeys().PUBKEY, session.pubkey);
 
   if (session.method === 'nip46' && session.bunkerUrl) {
-    setCookie(COOKIE_KEYS.BUNKER, session.bunkerUrl);
+    setCookie(getCookieKeys().BUNKER, session.bunkerUrl);
   } else {
-    deleteCookie(COOKIE_KEYS.BUNKER);
+    deleteCookie(getCookieKeys().BUNKER);
   }
 }
 
@@ -186,8 +193,8 @@ export function saveSharedSession(session: SharedSession): void {
  * Get shared session from cookies
  */
 export function getSharedSession(): SharedSession | null {
-  const method = getCookie(COOKIE_KEYS.METHOD) as AuthMethod | null;
-  const pubkey = getCookie(COOKIE_KEYS.PUBKEY);
+  const method = getCookie(getCookieKeys().METHOD) as AuthMethod | null;
+  const pubkey = getCookie(getCookieKeys().PUBKEY);
 
   if (!method || !pubkey) {
     return null;
@@ -196,7 +203,7 @@ export function getSharedSession(): SharedSession | null {
   const session: SharedSession = { method, pubkey };
 
   if (method === 'nip46') {
-    const bunkerUrl = getCookie(COOKIE_KEYS.BUNKER);
+    const bunkerUrl = getCookie(getCookieKeys().BUNKER);
     if (bunkerUrl) {
       session.bunkerUrl = bunkerUrl;
     }
@@ -217,7 +224,7 @@ export function hasSharedSession(): boolean {
  * Returns null if the cookie is absent.
  */
 export function getActivePubkeyCookie(): string | null {
-  return getCookie(COOKIE_KEYS.ACTIVE_PUBKEY);
+  return getCookie(getCookieKeys().ACTIVE_PUBKEY);
 }
 
 /**
@@ -226,18 +233,18 @@ export function getActivePubkeyCookie(): string | null {
  * session cookies.
  */
 export function setActivePubkeyCookie(pubkey: string): void {
-  setCookie(COOKIE_KEYS.ACTIVE_PUBKEY, pubkey);
+  setCookie(getCookieKeys().ACTIVE_PUBKEY, pubkey);
 }
 
 /**
  * Clear shared session cookies
  */
 export function clearSharedSession(): void {
-  deleteCookie(COOKIE_KEYS.METHOD);
-  deleteCookie(COOKIE_KEYS.PUBKEY);
-  deleteCookie(COOKIE_KEYS.BUNKER);
-  deleteCookie(COOKIE_KEYS.TTL);
-  deleteCookie(COOKIE_KEYS.ACTIVE_PUBKEY);
+  deleteCookie(getCookieKeys().METHOD);
+  deleteCookie(getCookieKeys().PUBKEY);
+  deleteCookie(getCookieKeys().BUNKER);
+  deleteCookie(getCookieKeys().TTL);
+  deleteCookie(getCookieKeys().ACTIVE_PUBKEY);
 }
 
 /**

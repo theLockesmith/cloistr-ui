@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.45.0
+
+- Environment-aware cookie names: staging environments use `cloistr_staging_` prefixed cookie names so browsers on `*.staging.cloistr.xyz` never read or write production session cookies that leak in via the parent `.cloistr.xyz` domain scope. Production cookie names are unchanged.
+- Add `getEnvironment()` to runtime config, reads from `window.__CLOISTR_CONFIG__.environment` with hostname fallback.
+
 ## 0.44.2
 
 - Fix import cycle between `ServiceMenu` and `lib/services` that caused "Cannot access 'defaultServices' before initialization" when `ServiceMenu` was the first module loaded. **0.44.0 and 0.44.1 blank any app importing ServiceMenu first; do not use.**
