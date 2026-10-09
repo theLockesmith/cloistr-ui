@@ -5,6 +5,7 @@ import {
   getCookieDomain,
   isCloistrHostname,
   getBaseDomain,
+  getEnvironment,
   getServiceUrlOverrides,
 } from './runtimeConfig.js';
 
@@ -107,6 +108,32 @@ describe('getBaseDomain', () => {
   it('uses explicit baseDomain from runtime config', () => {
     setWindowWith('something.example.com', { baseDomain: 'example.com' });
     expect(getBaseDomain()).toBe('example.com');
+  });
+});
+
+describe('getEnvironment', () => {
+  it('defaults to production when no window exists', () => {
+    expect(getEnvironment()).toBe('production');
+  });
+
+  it('returns production on production hostnames', () => {
+    setWindowWith('space.cloistr.xyz');
+    expect(getEnvironment()).toBe('production');
+  });
+
+  it('returns staging on staging hostnames', () => {
+    setWindowWith('space.staging.cloistr.xyz');
+    expect(getEnvironment()).toBe('staging');
+  });
+
+  it('reads environment from runtime config', () => {
+    setWindowWith('custom.example.com', { environment: 'staging' });
+    expect(getEnvironment()).toBe('staging');
+  });
+
+  it('prefers runtime config over hostname detection', () => {
+    setWindowWith('space.cloistr.xyz', { environment: 'staging' });
+    expect(getEnvironment()).toBe('staging');
   });
 });
 
