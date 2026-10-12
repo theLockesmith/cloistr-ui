@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.48.0
+
+- "Stay signed in" (needs cloistr-signer's stay-signed-in release; on a signer without it nothing changes). The sign-in form offers the durations the signer allows (this session only by default, 1 day, 30 days, until I sign out) and, where offered, "only this browser can keep me signed in" (split mode). After sign-in it says what was actually granted, including when that is shorter than asked.
+- Split mode: the browser's half of the seal is an HttpOnly cookie the signer sets on its own unseal path; no script reads or stores it. On a locked key the client unseals first, then the one silent retry, then the prompt.
+- `StaySignedInManager`: lists where the user stays signed in and revokes them all.
+- `SharedAuthProvider` keeps a sliding "until I sign out" session alive in an open tab (`/users/me`, at most hourly).
+- New exports: `fetchStaySignedInOptions`, `stayFieldsForLogin`, `describeGrant`, `unsealSession`, `listStaySignedIn`, `revokeAllStaySignedIn`, `touchSession`, `useSessionKeepAlive`, `STAY_LABELS`.
+
 ## 0.47.1
 
 - Fix: deploy recovery now also covers sessions opened through the sign-in form. 0.47.0 attached it only to sessions restored on page load, so a user who signed in and kept working got a bare timeout after the next signer deploy. The provider now adopts a form-opened NIP-46 session once it confirms the key is in the user's Cloistr signer account (a session with the user's own bunker is never adopted, even for a key also imported into Cloistr: an identity with a `bunkerUrl`, or a bunker address remembered by `@cloistr/auth`, is left alone).

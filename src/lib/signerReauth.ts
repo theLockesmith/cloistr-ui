@@ -116,9 +116,20 @@ export function decideAfterSignerFailure(err: unknown, health: SignerApiHealth):
   return 'reauth';
 }
 
+/**
+ * Split-mode unseal (see staySignedIn.unsealSession). 'restored' means the key
+ * is unsealed again; anything else carries on to the silent retry.
+ */
+export type Unseal = () => Promise<'restored' | 'nothing' | 'unreachable'>;
+
 export interface ReauthDeps {
   /** Probe the signer API (see probeSignerApi). */
   probe: () => Promise<SignerApiHealth>;
+  /**
+   * Optional: hand the browser's seal half back BEFORE the silent retry
+   * (ruled 2026-10-12: unseal, then the one silent retry, then the prompt).
+   */
+  unseal?: Unseal;
   /** Mint a fresh NIP-46 session for the same key. Throws key_locked if no replica holds it. */
   remint: () => Promise<SignerInterface>;
   /** Ask the user to sign in again. Resolves once they have; rejects if they decline. */
@@ -215,6 +226,10 @@ export function wrapSignerWithReauth(initial: SignerInterface, deps: ReauthDeps)
   const recover = (health: SignerApiHealth): Promise<void> => {
     if (!recovering) {
       recovering = (async () => {
+        // Split mode: the result does not change what follows. If it
+        // restored the key, the silent retry below succeeds; if not, the
+        // retry fails and the prompt follows, exactly as without it.
+        if (deps.unseal) await deps.unseal();
         try {
           // The one silent retry: a fresh session. The signer forwards it to
           // whichever replica holds the key, and answers key_locked quickly
@@ -298,12 +313,15 @@ export async function connectWithLockedKeyRecovery(deps: {
   connect: () => Promise<boolean>;
   probe: () => Promise<SignerApiHealth>;
   requestReauth: () => Promise<void>;
+  /** Optional split-mode unseal, run before the silent retry. */
+  unseal?: Unseal;
 }): Promise<boolean> {
   try {
     return await deps.connect();
   } catch (first) {
     if (!isKeyLockedError(first)) throw first;
   }
+  if (deps.unseal) await deps.unseal();
   try {
     return await deps.connect();
   } catch (second) {

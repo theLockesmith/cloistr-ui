@@ -81,3 +81,5 @@ export type {
   ContextMenuTriggerOptions,
   ContextMenuTriggerHandlers,
 } from './ContextMenu.js';
+export { StaySignedInManager } from './StaySignedInManager.js';
+export type { StaySignedInManagerProps } from './StaySignedInManager.js';
