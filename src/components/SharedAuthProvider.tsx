@@ -37,6 +37,8 @@ import { useRelayReconnect } from '../lib/useRelayReconnect.js';
 import { AuthRestoreGate } from './AuthRestoreGate.js';
 import { SignerReauthPrompt } from './SignerReauthPrompt.js';
 import { connectWithLockedKeyRecovery, probeSignerApi, shouldAdoptForReauth } from '../lib/signerReauth.js';
+import { unsealSession } from '../lib/staySignedIn.js';
+import { useSessionKeepAlive } from '../lib/useSessionKeepAlive.js';
 
 /**
  * Backstop for a genuinely hung SSO restore.
@@ -249,6 +251,10 @@ function SessionSyncInner({
   // SharedAuthProvider get this automatically with no extra mount required.
   useRelayReconnect();
 
+  // Sliding "until I sign out" sessions renew on use; keep an open tab using
+  // it (see lib/useSessionKeepAlive.ts).
+  useSessionKeepAlive(signerUrl, isAuthenticated && isCloistrDomain());
+
   // All multi-identity / cookie / cross-tab logic lives here.
   const {
     mintSignerForKey: _mintSignerForKey,
@@ -370,6 +376,7 @@ function SessionSyncInner({
       connectWithLockedKeyRecovery({
         connect: attemptSsoConnect,
         probe: () => probeSignerApi(signerUrl),
+        unseal: () => unsealSession(signerUrl),
         requestReauth,
       }),
     [attemptSsoConnect, requestReauth, signerUrl],

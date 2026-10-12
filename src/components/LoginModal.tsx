@@ -4,6 +4,8 @@ import { useNostrAuth, useAuthHelpers, isValidBunkerUrl } from '../auth/index.js
 import { isValidHumanName } from '../lib/username.js';
 import { approveAfterListening } from '../lib/approveAfterListening.js';
 import { getSignerUrl, getSignerHostname } from '../lib/runtimeConfig.js';
+import { fetchStaySignedInOptions, stayFieldsForLogin, describeGrant, STAY_LABELS } from '../lib/staySignedIn.js';
+import type { StayChoice, StayGrant, StaySignedInOptions } from '../lib/staySignedIn.js';
 
 /** Data passed to onSession callback in session mode */
 export interface SessionData {
@@ -32,7 +34,7 @@ export interface LoginModalProps {
   onSession?: (data: SessionData) => void | Promise<void>;
 }
 
-type Screen = 'method' | 'bunker' | 'login' | 'signup' | 'pending' | 'consent' | 'lightning';
+type Screen = 'method' | 'bunker' | 'login' | 'signup' | 'pending' | 'consent' | 'lightning' | 'granted';
 
 /**
  * Login modal with NIP-07, NIP-46, password login, Lightning login, and signup options.
@@ -117,6 +119,24 @@ export function LoginModal({ isOpen, onClose, signerUrl: signerUrlProp, mode = '
   const [lf, setLf] = useState({ username: '', password: '' });
   const [lfBusy, setLfBusy] = useState(false);
 
+  // "Stay signed in" (lib/staySignedIn.ts). Null options = a signer without
+  // the feature: the form renders exactly as before and sends no new fields.
+  // Defaults to "this session only": staying signed in is opt-in.
+  const [stayOptions, setStayOptions] = useState<StaySignedInOptions | null>(null);
+  const [stayChoice, setStayChoice] = useState<StayChoice>('session');
+  const [staySplit, setStaySplit] = useState(false);
+  const [grantNote, setGrantNote] = useState<{ text: string; reduced: boolean } | null>(null);
+  useEffect(() => {
+    if (!isOpen) return;
+    let live = true;
+    void fetchStaySignedInOptions(signerUrl).then((o) => {
+      if (live) setStayOptions(o);
+    });
+    return () => {
+      live = false;
+    };
+  }, [isOpen, signerUrl]);
+
   // Signup form
   const [su, setSu] = useState({
     username: '', password: '', passwordConfirm: '', importNsec: '', showImportKey: false, inviteCode: '',
@@ -171,6 +191,9 @@ export function LoginModal({ isOpen, onClose, signerUrl: signerUrlProp, mode = '
     setBunkerUrl('');
     setLf({ username: '', password: '' });
     setLfBusy(false);
+    setStayChoice('session');
+    setStaySplit(false);
+    setGrantNote(null);
     setSu({ username: '', password: '', passwordConfirm: '', importNsec: '', showImportKey: false, inviteCode: '' });
     setSuBusy(false);
     setSuStatus(null);
@@ -508,15 +531,28 @@ export function LoginModal({ isOpen, onClose, signerUrl: signerUrlProp, mode = '
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ username: lf.username, password: lf.password }),
+        body: JSON.stringify({
+          username: lf.username,
+          password: lf.password,
+          ...stayFieldsForLogin(stayOptions, stayChoice, staySplit),
+        }),
       });
       if (!loginRes.ok) {
         const b = await loginRes.json().catch(() => ({}));
         throw new Error((b as { error?: string }).error || `Login failed (${loginRes.status})`);
       }
-      const loginBody = (await loginRes.json()) as { token?: string; expires_at?: string; user?: unknown };
+      const loginBody = (await loginRes.json()) as {
+        token?: string;
+        expires_at?: string;
+        user?: unknown;
+        stay_signed_in?: StayGrant;
+      };
       const token = loginBody.token;
       if (!token) throw new Error('Login response missing token');
+      // Only worth a screen when the user asked for more than this session:
+      // tell them what they actually got (the signer may grant less).
+      const grant =
+        stayOptions && stayChoice !== 'session' ? describeGrant(loginBody.stay_signed_in, stayChoice) : null;
 
       if (mode === 'session') {
         await onSession?.({
@@ -567,7 +603,14 @@ export function LoginModal({ isOpen, onClose, signerUrl: signerUrlProp, mode = '
         }
       });
 
-      if (!authState.error) onClose();
+      if (!authState.error) {
+        if (grant) {
+          setGrantNote(grant);
+          setScreen('granted');
+        } else {
+          onClose();
+        }
+      }
     } catch (err) {
       setLocalError((err as Error).message);
     } finally {
@@ -697,6 +740,7 @@ export function LoginModal({ isOpen, onClose, signerUrl: signerUrlProp, mode = '
     pending: 'Connecting…',
     consent: 'Confirm Access',
     lightning: 'Sign in with Lightning',
+    granted: 'Signed in',
   };
 
   return (
@@ -842,6 +886,35 @@ export function LoginModal({ isOpen, onClose, signerUrl: signerUrlProp, mode = '
                 autoComplete="current-password"
                 className="cloistr-input"
               />
+              {stayOptions && (
+                <>
+                  <label htmlFor="lf-stay">Stay signed in</label>
+                  <select
+                    id="lf-stay"
+                    className="cloistr-input"
+                    value={stayChoice}
+                    onChange={(e) => setStayChoice(e.target.value as StayChoice)}
+                  >
+                    {stayOptions.choices.map((c) => (
+                      <option key={c} value={c}>
+                        {STAY_LABELS[c]}
+                      </option>
+                    ))}
+                  </select>
+                  {stayOptions.split && stayChoice !== 'session' && stayOptions.split_choices.includes(stayChoice) && (
+                    <label className="cloistr-login-help" htmlFor="lf-stay-split">
+                      <input
+                        id="lf-stay-split"
+                        type="checkbox"
+                        checked={staySplit}
+                        onChange={(e) => setStaySplit(e.target.checked)}
+                      />{' '}
+                      Only this browser can keep me signed in. Safer if Cloistr's servers are ever
+                      compromised, but clearing this browser's data means signing in again.
+                    </label>
+                  )}
+                </>
+              )}
               <div className="cloistr-form-actions">
                 <button
                   type="button"
@@ -1040,6 +1113,17 @@ export function LoginModal({ isOpen, onClose, signerUrl: signerUrlProp, mode = '
           )}
 
           {/* ── Consent: first-time per-app SSO approval ──────────────────── */}
+          {screen === 'granted' && grantNote && (
+            <div className="cloistr-stay-granted">
+              <p>{grantNote.text}</p>
+              <div className="cloistr-form-actions" style={{ marginTop: '16px' }}>
+                <button type="button" className="cloistr-btn cloistr-btn-primary" onClick={onClose} autoFocus>
+                  Continue
+                </button>
+              </div>
+            </div>
+          )}
+
           {screen === 'consent' && (
             <div className="cloistr-consent">
               <p>

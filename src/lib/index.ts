@@ -81,3 +81,19 @@ export {
   useWriteGate,
 } from './useWriteGate.js';
 export type { WriteGateStatus, WriteGate } from './useWriteGate.js';
+
+// "Stay signed in" (signer sealed sessions; see staySignedIn.ts)
+export {
+  fetchStaySignedInOptions,
+  stayFieldsForLogin,
+  describeGrant,
+  unsealSession,
+  listStaySignedIn,
+  revokeAllStaySignedIn,
+  touchSession,
+  shouldTouchSession,
+  STAY_LABELS,
+  KEEPALIVE_INTERVAL_MS,
+} from './staySignedIn.js';
+export type { StayChoice, StayGrant, StaySignedInOptions, StaySignedInRow } from './staySignedIn.js';
+export { useSessionKeepAlive } from './useSessionKeepAlive.js';

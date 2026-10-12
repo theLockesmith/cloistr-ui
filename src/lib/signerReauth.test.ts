@@ -422,3 +422,66 @@ describe('sessions opened through the sign-in form get recovery too', () => {
     expect(cloistrKeyIdFor([{ id: 'k3' }], 'pk')).toBeNull();
   });
 });
+
+
+
+describe('split mode: unseal comes FIRST (ruled 2026-10-12)', () => {
+  it('wrapper: unseal, then the one silent retry, and nobody is asked when the unseal worked', async () => {
+    const order: string[] = [];
+    const inner = fakeSigner({ signEvent: vi.fn(async () => { throw keyLocked(); }) });
+    const fresh = fakeSigner();
+    const s = wrapSignerWithReauth(inner, {
+      probe: vi.fn(async () => 'healthy' as const),
+      unseal: vi.fn(async () => { order.push('unseal'); return 'restored' as const; }),
+      remint: vi.fn(async () => { order.push('remint'); return fresh; }),
+      requestReauth: vi.fn(async () => { order.push('prompt'); }),
+    });
+    await s.signEvent(ev);
+    expect(order).toEqual(['unseal', 'remint']);
+  });
+
+  it('wrapper: nothing to unseal still gets the silent retry, then the prompt', async () => {
+    const order: string[] = [];
+    const inner = fakeSigner({ signEvent: vi.fn(async () => { throw keyLocked(); }) });
+    const s = wrapSignerWithReauth(inner, {
+      probe: vi.fn(async () => 'healthy' as const),
+      unseal: vi.fn(async () => { order.push('unseal'); return 'nothing' as const; }),
+      remint: vi.fn()
+        .mockImplementationOnce(async () => { order.push('remint'); throw keyLocked(); })
+        .mockImplementationOnce(async () => { order.push('remint'); return fakeSigner(); }),
+      requestReauth: vi.fn(async () => { order.push('prompt'); }),
+    });
+    await s.signEvent(ev);
+    expect(order).toEqual(['unseal', 'remint', 'prompt', 'remint']);
+  });
+
+  it('wrapper: an unreachable signer is never unsealed nor prompted', async () => {
+    const inner = fakeSigner({ signEvent: vi.fn(async () => { throw timeout(); }) });
+    const unseal = vi.fn(async () => 'restored' as const);
+    const requestReauth = vi.fn(async () => {});
+    const s = wrapSignerWithReauth(inner, {
+      probe: vi.fn(async () => 'unreachable' as const),
+      unseal,
+      remint: vi.fn(async () => fakeSigner()),
+      requestReauth,
+    });
+    await expect(s.signEvent(ev)).rejects.toThrow();
+    expect(unseal).not.toHaveBeenCalled();
+    expect(requestReauth).not.toHaveBeenCalled();
+  });
+
+  it('page load: key_locked, unseal, then the silent retry connects', async () => {
+    const order: string[] = [];
+    const connect = vi.fn()
+      .mockImplementationOnce(async () => { order.push('connect'); throw keyLocked(); })
+      .mockImplementationOnce(async () => { order.push('connect'); return true; });
+    const ok = await connectWithLockedKeyRecovery({
+      connect,
+      probe: async () => 'healthy' as const,
+      unseal: async () => { order.push('unseal'); return 'restored' as const; },
+      requestReauth: async () => { order.push('prompt'); },
+    });
+    expect(ok).toBe(true);
+    expect(order).toEqual(['connect', 'unseal', 'connect']);
+  });
+});

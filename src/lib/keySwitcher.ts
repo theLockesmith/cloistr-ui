@@ -29,6 +29,7 @@ import type { KeyIdentity, SignerInterface } from '../auth/index.js';
 import { startNostrConnect } from '@cloistr/auth';
 import type { NostrConnectSession } from '@cloistr/auth';
 import { wrapSignerWithReauth, probeSignerApi, isKeyLockedError, cloistrKeyIdFor, KEY_LOCKED } from './signerReauth.js';
+import { unsealSession } from './staySignedIn.js';
 import {
   getActivePubkeyCookie,
   setActivePubkeyCookie,
@@ -274,6 +275,7 @@ export function useKeySwitcherBootstrap(
     (signer: SignerInterface, keyId: string, pubkey: string): SignerInterface =>
       wrapSignerWithReauth(signer, {
         probe: () => probeSignerApi(signerUrl),
+        unseal: () => unsealSession(signerUrl),
         // Detached: the wrapper stays the context's signer throughout and
         // swaps its inner session; the app's sign-in state never changes.
         remint: () => rawMintSignerForKey(keyId, pubkey, true),
