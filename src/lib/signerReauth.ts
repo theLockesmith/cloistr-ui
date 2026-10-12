@@ -132,6 +132,65 @@ function sessionEnded(): Error {
   );
 }
 
+/** Marks a signer produced by wrapSignerWithReauth. */
+const REAUTH_WRAPPED = Symbol.for('cloistr.signerReauth.wrapped');
+
+export function isReauthWrapped(signer: unknown): boolean {
+  return typeof signer === 'object' && signer !== null && REAUTH_WRAPPED in signer;
+}
+
+/**
+ * Should the provider attach recovery to the signer the app is using now?
+ *
+ * The page-load restore wraps the signers it mints. A session opened through
+ * the sign-in form is installed raw by @cloistr/auth, so without this a user who
+ * signed in and kept working got a bare timeout after the next signer deploy.
+ * Measured live 2026-10-12. Only a connected NIP-46 session on a Cloistr host,
+ * not already wrapped; an extension (NIP-07) holds its own key and is never
+ * ours to re-mint.
+ *
+ * NEVER a bunker session (review of !68): a user may connect their OWN bunker
+ * for a key they have also imported into Cloistr, so "the key is in the
+ * Cloistr account" does not make the session Cloistr's. Adopting it would
+ * re-mint their signing through the Cloistr signer, a custody path they did not
+ * choose, or show a Cloistr prompt for a bunker session. @cloistr/auth records
+ * bunkerUrl on a bunker identity and remembers it in storage; a session opened
+ * through the Cloistr sign-in form has neither. Any doubt leaves the signer
+ * alone, which is 0.47.0's behaviour. cloistrKeyIdFor is the second check.
+ */
+export function shouldAdoptForReauth(s: {
+  signer: unknown;
+  isConnected: boolean;
+  method: string | null | undefined;
+  pubkey: string | null | undefined;
+  onCloistrDomain: boolean;
+  /** bunkerUrl on the active KeyIdentity, if any. */
+  bunkerUrl?: string | null;
+  /** @cloistr/auth has a bunker address in storage. */
+  rememberedBunker?: boolean;
+}): boolean {
+  return (
+    !s.bunkerUrl &&
+    !s.rememberedBunker &&
+    !!s.signer &&
+    s.isConnected &&
+    s.method === 'nip46' &&
+    !!s.pubkey &&
+    s.onCloistrDomain &&
+    !isReauthWrapped(s.signer)
+  );
+}
+
+/**
+ * The Cloistr signer key id for a pubkey, or null when the user's Cloistr
+ * account has no such key (a session with the user's own bunker). Null means
+ * leave the signer alone: re-minting through Cloistr would be wrong, and a
+ * Cloistr sign-in prompt would be absurd.
+ */
+export function cloistrKeyIdFor(keys: ReadonlyArray<{ id: string; pubkey?: string }>, pubkey: string): string | null {
+  return keys.find((k) => k.pubkey === pubkey)?.id ?? null;
+}
+
 /**
  * Wrap a signer so a locked key is recovered instead of hanging.
  *
@@ -220,6 +279,7 @@ export function wrapSignerWithReauth(initial: SignerInterface, deps: ReauthDeps)
     encrypt: (pk, pt) => call((s) => s.encrypt(pk, pt)),
     decrypt: (pk, ct) => call((s) => s.decrypt(pk, ct)),
   };
+  Object.defineProperty(wrapped, REAUTH_WRAPPED, { value: true });
   if (initial.nip44Encrypt) wrapped.nip44Encrypt = nip44('nip44Encrypt');
   if (initial.nip44Decrypt) wrapped.nip44Decrypt = nip44('nip44Decrypt');
   if (initial.disconnect) wrapped.disconnect = () => inner.disconnect?.() ?? Promise.resolve();

@@ -28,7 +28,7 @@ import { useNostrAuth, connectNip07, isNip07Supported } from '../auth/index.js';
 import type { KeyIdentity, SignerInterface } from '../auth/index.js';
 import { startNostrConnect } from '@cloistr/auth';
 import type { NostrConnectSession } from '@cloistr/auth';
-import { wrapSignerWithReauth, probeSignerApi, isKeyLockedError, KEY_LOCKED } from './signerReauth.js';
+import { wrapSignerWithReauth, probeSignerApi, isKeyLockedError, cloistrKeyIdFor, KEY_LOCKED } from './signerReauth.js';
 import {
   getActivePubkeyCookie,
   setActivePubkeyCookie,
@@ -77,6 +77,12 @@ export interface KeySwitcherBootstrap {
   setIsResolving: (v: boolean) => void;
   /** Per-tab pin utilities */
   pin: PinState;
+  /**
+   * Attach deploy recovery to a signer this hook did not mint (one opened
+   * through the sign-in form). Resolves null when the key is not in the
+   * user's Cloistr signer account (their own bunker): leave that alone.
+   */
+  adoptSignerForReauth: (signer: SignerInterface, pubkey: string) => Promise<SignerInterface | null>;
 }
 
 const PIN_KEY = 'cloistr:auth:pinnedPubkey';
@@ -264,11 +270,9 @@ export function useKeySwitcherBootstrap(
     [signerUrl, connectViaNostrConnect],
   );
 
-  const mintSignerForKey = useCallback(
-    async (keyId: string, pubkey: string): Promise<SignerInterface> => {
-      const signer = await rawMintSignerForKey(keyId, pubkey);
-      if (!requestReauthRef.current) return signer;
-      const wrapped: SignerInterface = wrapSignerWithReauth(signer, {
+  const wrapForKey = useCallback(
+    (signer: SignerInterface, keyId: string, pubkey: string): SignerInterface =>
+      wrapSignerWithReauth(signer, {
         probe: () => probeSignerApi(signerUrl),
         // Detached: the wrapper stays the context's signer throughout and
         // swaps its inner session; the app's sign-in state never changes.
@@ -277,10 +281,34 @@ export function useKeySwitcherBootstrap(
           requestReauthRef.current
             ? requestReauthRef.current()
             : Promise.reject(new Error('re-sign-in unavailable')),
-      });
-      return wrapped;
-    },
+      }),
     [signerUrl, rawMintSignerForKey],
+  );
+
+  const mintSignerForKey = useCallback(
+    async (keyId: string, pubkey: string): Promise<SignerInterface> => {
+      const signer = await rawMintSignerForKey(keyId, pubkey);
+      if (!requestReauthRef.current) return signer;
+      return wrapForKey(signer, keyId, pubkey);
+    },
+    [rawMintSignerForKey, wrapForKey],
+  );
+
+  const adoptSignerForReauth = useCallback(
+    async (signer: SignerInterface, pubkey: string): Promise<SignerInterface | null> => {
+      if (!requestReauthRef.current) return null;
+      try {
+        const res = await fetch(`${signerUrl}/api/v1/keys`, { credentials: 'include' });
+        if (!res.ok) return null;
+        const body = (await res.json()) as unknown;
+        const keys = Array.isArray(body) ? (body as SignerKey[]) : (((body as { keys?: SignerKey[] }).keys) ?? []);
+        const keyId = cloistrKeyIdFor(keys, pubkey);
+        return keyId ? wrapForKey(signer, keyId, pubkey) : null;
+      } catch {
+        return null;
+      }
+    },
+    [signerUrl, wrapForKey],
   );
 
   // --- resolveSigner ---
@@ -457,6 +485,7 @@ export function useKeySwitcherBootstrap(
 
   return {
     mintSignerForKey,
+    adoptSignerForReauth,
     resolveSigner,
     bootstrapKeys,
     isResolving,

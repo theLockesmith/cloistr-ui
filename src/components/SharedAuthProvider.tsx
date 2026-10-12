@@ -36,7 +36,7 @@ import { planPageLoadRestore } from './authRestorePolicy.js';
 import { useRelayReconnect } from '../lib/useRelayReconnect.js';
 import { AuthRestoreGate } from './AuthRestoreGate.js';
 import { SignerReauthPrompt } from './SignerReauthPrompt.js';
-import { connectWithLockedKeyRecovery, probeSignerApi } from '../lib/signerReauth.js';
+import { connectWithLockedKeyRecovery, probeSignerApi, shouldAdoptForReauth } from '../lib/signerReauth.js';
 
 /**
  * Backstop for a genuinely hung SSO restore.
@@ -216,7 +216,7 @@ function SessionSyncInner({
   resolveSignerRef: React.MutableRefObject<((identity: KeyIdentity) => Promise<SignerInterface>) | undefined>;
 }) {
   const signerUrl = signerUrlProp || getSignerUrl();
-  const { authState } = useNostrAuth();
+  const { authState, signer, registerKey } = useNostrAuth();
   const { isAuthenticated } = useAuthHelpers();
   const autoConnectAttempted = useRef(false);
   const prevConnectedRef = useRef(authState.isConnected);
@@ -257,12 +257,56 @@ function SessionSyncInner({
     isResolving,
     setIsResolving,
     pin,
+    adoptSignerForReauth,
   } = useKeySwitcherBootstrap(signerUrl, autoConnect !== false, { requestReauth });
 
   // Keep the ref up-to-date so AuthProvider always calls the current closure
   useEffect(() => {
     resolveSignerRef.current = resolveSigner;
   }, [resolveSignerRef, resolveSigner]);
+
+  // A session opened through the sign-in form arrives RAW: only the page-load
+  // restore wrapped its signers, so a user who signed in and kept working got a
+  // bare timeout after the next signer deploy (measured live 2026-10-12). Give
+  // it the same recovery. Same pubkey and method, so no identity-change event
+  // fires. Read through refs: registerKey changes identity whenever the key
+  // list does, and re-running mid-fetch would drop the adoption.
+  const hasRememberedBunker = () => {
+    try {
+      // @cloistr/auth's storage key for a bunker connection (context.js).
+      return !!window.localStorage.getItem('cloistr:auth:bunkerUrl');
+    } catch {
+      return false;
+    }
+  };
+  const adoptRef = useRef(adoptSignerForReauth);
+  adoptRef.current = adoptSignerForReauth;
+  const registerKeyRef = useRef(registerKey);
+  registerKeyRef.current = registerKey;
+  useEffect(() => {
+    if (
+      !shouldAdoptForReauth({
+        signer,
+        isConnected: !!authState.isConnected,
+        method: authState.method,
+        pubkey: authState.pubkey,
+        onCloistrDomain: isCloistrDomain(),
+        bunkerUrl: authState.keys?.find((k) => k.pubkey === authState.pubkey)?.bunkerUrl,
+        rememberedBunker: hasRememberedBunker(),
+      })
+    ) {
+      return;
+    }
+    const pubkey = authState.pubkey as string;
+    let live = true;
+    void adoptRef.current(signer!, pubkey).then((wrapped) => {
+      // Only if the session is still the one we looked up.
+      if (live && wrapped) registerKeyRef.current({ pubkey, method: 'nip46' }, wrapped, { activate: true });
+    });
+    return () => {
+      live = false;
+    };
+  }, [signer, authState.isConnected, authState.method, authState.pubkey, authState.keys]);
 
   /**
    * Sync successful auth to shared session cookies on connect transition
