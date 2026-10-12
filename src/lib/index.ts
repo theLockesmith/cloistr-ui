@@ -51,6 +51,16 @@ export {
   TERMINAL_CODES,
 } from './signerRetry.js';
 export type { SignerFailureKind, SignerRetryOptions } from './signerRetry.js';
+export {
+  KEY_LOCKED,
+  SIGNER_SESSION_ENDED,
+  isKeyLockedError,
+  probeSignerApi,
+  decideAfterSignerFailure,
+  wrapSignerWithReauth,
+  connectWithLockedKeyRecovery,
+} from './signerReauth.js';
+export type { SignerApiHealth, FailureDecision, ReauthDeps } from './signerReauth.js';
 
 export { useRelayReconnect } from './useRelayReconnect.js';
 export type { RelayReconnectOptions } from './useRelayReconnect.js';

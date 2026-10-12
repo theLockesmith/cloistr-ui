@@ -34,6 +34,8 @@
  * break on exactly the older installs most likely to hit these paths.
  */
 
+import { SIGNER_SESSION_ENDED } from './signerReauth.js';
+
 /** What a caller should do about a failed signing attempt. */
 export type SignerFailureKind = 'retryable' | 'needs-user' | 'terminal';
 
@@ -163,6 +165,15 @@ export async function withSignerRetry<T>(
 
 /** Human-facing copy for a failure, for the recovery UI. */
 export function signerFailureMessage(err: unknown): { title: string; detail: string } {
+  // The user chose not to sign in again after the signer lost their key (see
+  // signerReauth.ts). Nobody refused anything, so do not say they did.
+  if (codeOf(err) === SIGNER_SESSION_ENDED) {
+    return {
+      title: 'Signing is paused',
+      detail:
+        'Your signing session ended, usually because the signer was updated. Nothing has been lost; it will continue once you are signed in again.',
+    };
+  }
   switch (classifySignerError(err)) {
     case 'retryable':
       return {

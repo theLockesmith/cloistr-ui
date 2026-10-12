@@ -15,7 +15,8 @@
  *   - resolveSigner      – stable callback for AuthProvider's resolveSigner prop.
  *   - bootstrapKeys      – async function; runs GET /api/v1/keys → setKeys →
  *                          pick active → mintSignerForKey → registerKey.
- *                          Returns true on success, false on failure.
+ *                          Returns true on success, false on failure; THROWS
+ *                          a key_locked error so the caller can act on it.
  *   - isResolving        – true while the on-load SSO restore is in flight.
  *   - setIsResolving     – let callers release the gate on their own schedule.
  *   - pin                – per-tab pin utilities (pinnedPubkey, setPinnedPubkey,
@@ -25,7 +26,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNostrAuth, connectNip07, isNip07Supported } from '../auth/index.js';
 import type { KeyIdentity, SignerInterface } from '../auth/index.js';
+import { startNostrConnect } from '@cloistr/auth';
 import type { NostrConnectSession } from '@cloistr/auth';
+import { wrapSignerWithReauth, probeSignerApi, isKeyLockedError, KEY_LOCKED } from './signerReauth.js';
 import {
   getActivePubkeyCookie,
   setActivePubkeyCookie,
@@ -34,11 +37,12 @@ import {
 
 /**
  * The signer refuses a nostrconnect session with this code when the user's key
- * is not unlocked on the replica serving the request. A locked key and an
- * unreachable relay are different problems with different remedies, and the
- * whole point of the code is that a browser cannot tell them apart otherwise.
+ * is not unlocked on any replica. A locked key and an unreachable relay are
+ * different problems with different remedies, and the whole point of the code
+ * is that a browser cannot tell them apart otherwise. Defined in signerReauth,
+ * which acts on it; exported here too for existing importers.
  */
-export const KEY_LOCKED = 'key_locked';
+export { KEY_LOCKED };
 
 /** Shape returned by the GET /api/v1/keys endpoint */
 export interface SignerKey {
@@ -77,10 +81,24 @@ export interface KeySwitcherBootstrap {
 
 const PIN_KEY = 'cloistr:auth:pinnedPubkey';
 
+export interface KeySwitcherOptions {
+  /**
+   * Ask the user to sign in again; resolves once they have, rejects if they
+   * decline. When given, every signer this hook mints is wrapped so a locked
+   * key (after a signer deploy) is recovered instead of hanging. See
+   * signerReauth.ts for the rule.
+   */
+  requestReauth?: () => Promise<void>;
+}
+
 export function useKeySwitcherBootstrap(
   signerUrl: string,
   initiallyResolving = true,
+  options: KeySwitcherOptions = {},
 ): KeySwitcherBootstrap {
+  const requestReauthRef = useRef(options.requestReauth);
+  requestReauthRef.current = options.requestReauth;
+
   const { connectViaNostrConnect, setKeys, registerKey, setActiveKey, authState } =
     useNostrAuth();
 
@@ -128,10 +146,17 @@ export function useKeySwitcherBootstrap(
 
   // --- mintSignerForKey ---
 
-  const mintSignerForKey = useCallback(
-    async (keyId: string, _pubkey: string): Promise<SignerInterface> => {
+  const rawMintSignerForKey = useCallback(
+    async (keyId: string, _pubkey: string, detached = false): Promise<SignerInterface> => {
       return new Promise<SignerInterface>((resolve, reject) => {
         let ncSessionRef: NostrConnectSession | null = null;
+        // connectViaNostrConnect settles AFTER `approved` (it fetches the
+        // pubkey first) and then installs the RAW signer as the context's
+        // signer. Resolving on `approved` alone let that land after our caller
+        // registered its own (wrapped) signer, silently replacing it. Measured
+        // live 2026-10-12: the re-sign-in wrapper was never on the signing
+        // path. So hand the signer over only once connect has fully settled.
+        let connectDone: Promise<unknown> = Promise.resolve();
 
         const onUri = async (uri: string, ncSession: NostrConnectSession) => {
           ncSessionRef = ncSession;
@@ -204,19 +229,58 @@ export function useKeySwitcherBootstrap(
               reject(new Error('consent_required or not success'));
               return;
             }
-            ncSession.approved.then(resolve).catch(reject);
+            ncSession.approved
+              .then(async (signer) => {
+                await connectDone;
+                resolve(signer);
+              })
+              .catch(reject);
           } catch (err) {
             ncSession.cancel();
             reject(err);
           }
         };
 
-        connectViaNostrConnect(undefined, onUri).catch((err) => {
+        // DETACHED: open the session without the auth context. A re-mint
+        // replaces the session UNDER the wrapper the app already signs
+        // through, so it must not touch app-wide state. Going through
+        // connectViaNostrConnect did: its failure path (the silent retry
+        // answering key_locked) clears the context's signer, which signs the
+        // app out, and the next attempt then raised the full-screen "signing
+        // you in" gate and UNMOUNTED THE APP, losing whatever was open.
+        // Measured live 2026-10-12 after a real signer restart.
+        const start = detached
+          ? async (_params: undefined, cb: typeof onUri) => {
+              const session = startNostrConnect();
+              await cb(session.uri, session);
+              await session.approved;
+            }
+          : connectViaNostrConnect;
+        connectDone = start(undefined, onUri).catch((err) => {
           if (!ncSessionRef) reject(err);
         });
       });
     },
     [signerUrl, connectViaNostrConnect],
+  );
+
+  const mintSignerForKey = useCallback(
+    async (keyId: string, pubkey: string): Promise<SignerInterface> => {
+      const signer = await rawMintSignerForKey(keyId, pubkey);
+      if (!requestReauthRef.current) return signer;
+      const wrapped: SignerInterface = wrapSignerWithReauth(signer, {
+        probe: () => probeSignerApi(signerUrl),
+        // Detached: the wrapper stays the context's signer throughout and
+        // swaps its inner session; the app's sign-in state never changes.
+        remint: () => rawMintSignerForKey(keyId, pubkey, true),
+        requestReauth: () =>
+          requestReauthRef.current
+            ? requestReauthRef.current()
+            : Promise.reject(new Error('re-sign-in unavailable')),
+      });
+      return wrapped;
+    },
+    [signerUrl, rawMintSignerForKey],
   );
 
   // --- resolveSigner ---
@@ -295,7 +359,11 @@ export function useKeySwitcherBootstrap(
       const signer = await mintSignerForKey(keyId, activeIdentity.pubkey);
       registerKey(activeIdentity, signer, { activate: true });
       return true;
-    } catch {
+    } catch (err) {
+      // A locked key is not a connection failure: no retry of the same
+      // request can fix it, so carry it to the caller, which decides whether
+      // to ask the user to sign in again (SharedAuthProvider).
+      if (isKeyLockedError(err)) throw err;
       return false;
     }
   }, [signerUrl, setKeys, registerKey, mintSignerForKey]);
