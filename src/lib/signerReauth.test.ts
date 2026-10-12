@@ -270,3 +270,114 @@ describe('connectWithLockedKeyRecovery (page-load restore)', () => {
     ).rejects.toMatchObject({ code: SIGNER_SESSION_ENDED });
   });
 });
+
+describe('review !67: a relay outage must never prompt', () => {
+  it('sign times out, probe healthy, the silent re-mint ALSO times out: rethrow, no prompt', async () => {
+    const inner = fakeSigner({ signEvent: vi.fn(async () => { throw timeout(); }) });
+    const remint = vi.fn(async () => { throw timeout(); });
+    const requestReauth = vi.fn(async () => {});
+    const s = wrapSignerWithReauth(inner, { probe: vi.fn(async () => 'healthy' as const), remint, requestReauth });
+    await expect(s.signEvent(ev)).rejects.toThrow();
+    expect(remint).toHaveBeenCalledOnce();
+    expect(requestReauth).not.toHaveBeenCalled();
+  });
+
+  it('a re-mint timeout wrapped by @cloistr/auth is still not a reason to prompt', async () => {
+    const inner = fakeSigner({ signEvent: vi.fn(async () => { throw timeout(); }) });
+    const wrappedTimeout = signerError('CONNECT_FAILED', 'Request timed out after 30000ms (relays: wss://r)');
+    const requestReauth = vi.fn(async () => {});
+    const s = wrapSignerWithReauth(inner, {
+      probe: vi.fn(async () => 'healthy' as const),
+      remint: vi.fn(async () => { throw wrappedTimeout; }),
+      requestReauth,
+    });
+    await expect(s.signEvent(ev)).rejects.toThrow();
+    expect(requestReauth).not.toHaveBeenCalled();
+  });
+
+  it('a 401 from the probe (session ended) prompts even though the re-mint fails for another reason', async () => {
+    const inner = fakeSigner({ signEvent: vi.fn(async () => { throw timeout(); }) });
+    const after = fakeSigner();
+    const remint = vi.fn()
+      .mockRejectedValueOnce(signerError('', 'nostrconnect/session failed: 401'))
+      .mockResolvedValueOnce(after);
+    const requestReauth = vi.fn(async () => {});
+    const s = wrapSignerWithReauth(inner, { probe: vi.fn(async () => 'session-expired' as const), remint, requestReauth });
+    await s.signEvent(ev);
+    expect(requestReauth).toHaveBeenCalledOnce();
+    expect(after.signEvent).toHaveBeenCalledOnce();
+  });
+
+  it('swapping the inner session disconnects the old one (no leaked relay subscription)', async () => {
+    const disconnect = vi.fn(async () => {});
+    const inner = fakeSigner({ signEvent: vi.fn(async () => { throw keyLocked(); }), disconnect });
+    const s = wrapSignerWithReauth(inner, {
+      probe: vi.fn(async () => 'healthy' as const),
+      remint: vi.fn(async () => fakeSigner()),
+      requestReauth: vi.fn(async () => {}),
+    });
+    await s.signEvent(ev);
+    expect(disconnect).toHaveBeenCalledOnce();
+  });
+});
+
+describe('review !67: closing the old session does not fail calls still waiting on it', () => {
+  it('a concurrent call rejected with DISCONNECTED by the swap reruns on the new session', async () => {
+    let rejectSecond: (e: Error) => void = () => {};
+    let calls = 0;
+    const inner = fakeSigner({
+      signEvent: vi.fn(() => {
+        calls += 1;
+        if (calls === 1) return Promise.reject(keyLocked());
+        return new Promise((_, rej) => { rejectSecond = rej; }) as never;
+      }),
+      disconnect: vi.fn(async () => { rejectSecond(signerError('DISCONNECTED', 'Connection closed')); }),
+    });
+    const fresh = fakeSigner();
+    const s = wrapSignerWithReauth(inner, {
+      probe: vi.fn(async () => 'healthy' as const),
+      remint: vi.fn(async () => fresh),
+      requestReauth: vi.fn(async () => {}),
+    });
+    const second = s.signEvent(ev);
+    const first = s.signEvent(ev);
+    await expect(first).resolves.toBeTruthy();
+    await expect(second).resolves.toBeTruthy();
+    expect(fresh.signEvent).toHaveBeenCalledTimes(2);
+  });
+
+  it('a refusal from an already-replaced session is still passed through, not re-asked', async () => {
+    const inner = fakeSigner({ signEvent: vi.fn(async () => { throw signerError('CANCELLED', 'user said no'); }) });
+    const s = wrapSignerWithReauth(inner, {
+      probe: vi.fn(async () => 'healthy' as const),
+      remint: vi.fn(async () => fakeSigner()),
+      requestReauth: vi.fn(async () => {}),
+    });
+    await expect(s.signEvent(ev)).rejects.toThrow('user said no');
+  });
+});
+
+describe('a replaced session (signer: one live grant per key) recovers silently', () => {
+  // Measured live 2026-10-12: during a relay outage the silent re-mint's POST
+  // reaches the signer (displacing the old grant) but its ack is lost. When the
+  // relay returns, the old session's next request is refused "unauthorized".
+  const grantGone = () => signerError('SIGN_EVENT_FAILED', 'Failed to sign event: unauthorized');
+
+  it('is a recovery candidate on a healthy signer, never a passthrough', () => {
+    expect(decideAfterSignerFailure(grantGone(), 'healthy')).toBe('reauth');
+  });
+
+  it('re-mints silently and completes the call, with no prompt', async () => {
+    const inner = fakeSigner({ signEvent: vi.fn(async () => { throw grantGone(); }) });
+    const fresh = fakeSigner();
+    const requestReauth = vi.fn(async () => {});
+    const s = wrapSignerWithReauth(inner, { probe: vi.fn(async () => 'healthy' as const), remint: vi.fn(async () => fresh), requestReauth });
+    await s.signEvent(ev);
+    expect(fresh.signEvent).toHaveBeenCalledOnce();
+    expect(requestReauth).not.toHaveBeenCalled();
+  });
+
+  it('a policy refusal that merely mentions authorization is still passed through', () => {
+    expect(decideAfterSignerFailure(signerError('REMOTE_ERROR', 'kind 4 not authorized by policy'), 'healthy')).toBe('passthrough');
+  });
+});

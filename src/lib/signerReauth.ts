@@ -69,6 +69,23 @@ function isTimeout(err: unknown): boolean {
   return err instanceof Error && TIMEOUT_MESSAGE.test(err.message);
 }
 
+/**
+ * The signer refused the request because this session no longer has a grant.
+ * The signer keeps ONE live grant per key, so opening any newer session for
+ * the same key revokes this one. Measured live 2026-10-12: a silent re-mint
+ * during a relay outage reached the signer (displacing the old grant) but lost
+ * its ack, and the old session's next request came back "unauthorized". The
+ * user is still signed in; a fresh session fixes it with no prompt. Matched on
+ * the whole trailing word, because @cloistr/auth rewraps the code and keeps
+ * only the message, and a policy refusal ("not authorized by policy") must
+ * still pass through.
+ */
+const GRANT_GONE_MESSAGE = /(^|: )unauthorized$/;
+
+function isGrantGone(err: unknown): boolean {
+  return err instanceof Error && GRANT_GONE_MESSAGE.test(err.message);
+}
+
 /** Is the signer API up, and is this browser's session still alive? */
 export async function probeSignerApi(
   signerUrl: string,
@@ -87,12 +104,14 @@ export async function probeSignerApi(
 /**
  * Decide what a failed signer call means. Pure, so the rule is pinned by test.
  *
- * Only a key_locked refusal or an unanswered request can be a locked key; every
- * other error (including a refusal) passes through untouched. Among those two,
- * an unreachable signer is NEVER a reason to ask for credentials.
+ * Only a key_locked refusal, an unanswered request, or a replaced session can
+ * be recovered; every other error (including a refusal) passes through
+ * untouched. Among those, an unreachable signer is NEVER a reason to ask for
+ * credentials. 'reauth' starts recovery; whether it ends in a prompt is decided
+ * there, and only a key_locked re-mint or an ended session (401) gets one.
  */
 export function decideAfterSignerFailure(err: unknown, health: SignerApiHealth): FailureDecision {
-  if (!isKeyLockedError(err) && !isTimeout(err)) return 'passthrough';
+  if (!isKeyLockedError(err) && !isTimeout(err) && !isGrantGone(err)) return 'passthrough';
   if (health === 'unreachable') return 'unreachable';
   return 'reauth';
 }
@@ -126,7 +145,15 @@ export function wrapSignerWithReauth(initial: SignerInterface, deps: ReauthDeps)
   // burst of failed calls produces one prompt, not one each.
   let recovering: Promise<void> | null = null;
 
-  const recover = (): Promise<void> => {
+  // Swap in a fresh session and close the old one, or its relay subscription
+  // stays open for the life of the page (one leak per recovery).
+  const swap = (next: SignerInterface) => {
+    const old = inner;
+    inner = next;
+    if (old !== next) void old.disconnect?.().catch(() => {});
+  };
+
+  const recover = (health: SignerApiHealth): Promise<void> => {
     if (!recovering) {
       recovering = (async () => {
         try {
@@ -134,17 +161,22 @@ export function wrapSignerWithReauth(initial: SignerInterface, deps: ReauthDeps)
           // whichever replica holds the key, and answers key_locked quickly
           // when none does, so the user does not wait out a second timeout
           // before being asked.
-          inner = await deps.remint();
+          swap(await deps.remint());
           return;
         } catch (err) {
-          if (!isKeyLockedError(err) && !isTimeout(err)) throw err;
+          // Prompt ONLY when the signer said no replica holds the key, or the
+          // session itself has ended (401 from the probe). A re-mint that
+          // TIMES OUT means the relay path is failing while the signer API is
+          // up: that is 'try again', never a credential prompt. Review of !67
+          // reproduced exactly that: relay down, prompt shown.
+          if (!isKeyLockedError(err) && health !== 'session-expired') throw err;
         }
         try {
           await deps.requestReauth();
         } catch {
           throw sessionEnded();
         }
-        inner = await deps.remint();
+        swap(await deps.remint());
       })().finally(() => {
         recovering = null;
       });
@@ -158,11 +190,16 @@ export function wrapSignerWithReauth(initial: SignerInterface, deps: ReauthDeps)
     try {
       return await op(used);
     } catch (err) {
+      // Another call already recovered while this one was in flight. Closing
+      // the old session (see swap) rejects its waiting calls with
+      // DISCONNECTED; those rerun on the new session like any other failure
+      // a recovery fixes.
+      if (inner !== used && codeOf(err) === 'DISCONNECTED') return op(inner);
       if (decideAfterSignerFailure(err, 'healthy') === 'passthrough') throw err;
-      // Another call already recovered while this one was in flight.
       if (inner !== used) return op(inner);
-      if (decideAfterSignerFailure(err, await deps.probe()) !== 'reauth') throw err;
-      await recover();
+      const health = await deps.probe();
+      if (decideAfterSignerFailure(err, health) !== 'reauth') throw err;
+      await recover(health);
       return op(inner);
     }
   };

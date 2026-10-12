@@ -4,6 +4,7 @@
 
 - Signer session recovery after a signer deploy (operator ruling 2026-10-12). When the signer is healthy but no replica holds the user's key (409 `key_locked`, or an unanswered NIP-46 request while the signer API answers), apps retry once silently and only then show "Your signer session needs you to sign in again". After signing in, the original request completes; the app stays mounted and open work is kept. An unreachable signer is unchanged: the "try again" screen, never a credential prompt.
 - New exports: `SignerReauthPrompt`, `wrapSignerWithReauth`, `probeSignerApi`, `decideAfterSignerFailure`, `connectWithLockedKeyRecovery`, `SIGNER_SESSION_ENDED`.
+- A relay outage never prompts: the prompt appears only when the signer answers `key_locked` or the session has ended (401). A silent retry that times out keeps the "try again" screen. A session displaced by a newer one (the signer keeps one live grant per key) recovers silently on its next request.
 - `SharedAuthProvider` apps get this with no code change. Proved live against two real signer restarts (20/20 browser checks).
 
 ## 0.46.0
