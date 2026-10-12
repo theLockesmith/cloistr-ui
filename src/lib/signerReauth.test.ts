@@ -7,6 +7,9 @@ import {
   decideAfterSignerFailure,
   wrapSignerWithReauth,
   connectWithLockedKeyRecovery,
+  isReauthWrapped,
+  shouldAdoptForReauth,
+  cloistrKeyIdFor,
 } from './signerReauth.js';
 
 /** Mimics @cloistr/auth's Nip46Error shape without importing it. */
@@ -379,5 +382,41 @@ describe('a replaced session (signer: one live grant per key) recovers silently'
 
   it('a policy refusal that merely mentions authorization is still passed through', () => {
     expect(decideAfterSignerFailure(signerError('REMOTE_ERROR', 'kind 4 not authorized by policy'), 'healthy')).toBe('passthrough');
+  });
+});
+
+describe('sessions opened through the sign-in form get recovery too', () => {
+  // Measured live 2026-10-12: recovery was attached only by the page-load
+  // restore, so a user who signed in through the form and kept working got a
+  // bare 30s timeout after the next signer deploy: no unseal, no prompt.
+  const base = { isConnected: true, method: 'nip46' as const, pubkey: 'pk', onCloistrDomain: true };
+
+  it('a wrapped signer is recognisable, so it is never wrapped twice', () => {
+    const w = wrapSignerWithReauth(fakeSigner(), { probe: vi.fn(), remint: vi.fn(), requestReauth: vi.fn() });
+    expect(isReauthWrapped(w)).toBe(true);
+    expect(isReauthWrapped(fakeSigner())).toBe(false);
+    expect(isReauthWrapped(null)).toBe(false);
+  });
+
+  it('adopts a connected NIP-46 signer that is not wrapped yet', () => {
+    expect(shouldAdoptForReauth({ ...base, signer: fakeSigner() })).toBe(true);
+  });
+
+  it.each([
+    ['already wrapped', { signer: wrapSignerWithReauth(fakeSigner(), { probe: vi.fn(), remint: vi.fn(), requestReauth: vi.fn() }) }],
+    ['no signer', { signer: null }],
+    ['not connected', { signer: fakeSigner(), isConnected: false }],
+    ['an extension (NIP-07): we do not control that key', { signer: fakeSigner(), method: 'nip07' as const }],
+    ['off a Cloistr host', { signer: fakeSigner(), onCloistrDomain: false }],
+    ['no pubkey', { signer: fakeSigner(), pubkey: null }],
+  ])('does not adopt: %s', (_n, over) => {
+    expect(shouldAdoptForReauth({ ...base, ...over })).toBe(false);
+  });
+
+  it('finds the Cloistr key for the pubkey, and nothing for a key that lives elsewhere (a bunker)', () => {
+    const keys = [{ id: 'k1', pubkey: 'aa' }, { id: 'k2', pubkey: 'pk' }];
+    expect(cloistrKeyIdFor(keys, 'pk')).toBe('k2');
+    expect(cloistrKeyIdFor(keys, 'zz')).toBeNull();
+    expect(cloistrKeyIdFor([{ id: 'k3' }], 'pk')).toBeNull();
   });
 });

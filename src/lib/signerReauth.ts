@@ -132,6 +132,51 @@ function sessionEnded(): Error {
   );
 }
 
+/** Marks a signer produced by wrapSignerWithReauth. */
+const REAUTH_WRAPPED = Symbol.for('cloistr.signerReauth.wrapped');
+
+export function isReauthWrapped(signer: unknown): boolean {
+  return typeof signer === 'object' && signer !== null && REAUTH_WRAPPED in signer;
+}
+
+/**
+ * Should the provider attach recovery to the signer the app is using now?
+ *
+ * The page-load restore wraps the signers it mints. A session opened through
+ * the sign-in form is installed raw by @cloistr/auth, so without this a user who
+ * signed in and kept working got a bare timeout after the next signer deploy.
+ * Measured live 2026-10-12. Only a connected NIP-46 session on a Cloistr host,
+ * not already wrapped; an extension (NIP-07) holds its own key and is never
+ * ours to re-mint. Whether the key actually lives in the user's Cloistr signer
+ * (and not in their own bunker) is checked separately: see cloistrKeyIdFor.
+ */
+export function shouldAdoptForReauth(s: {
+  signer: unknown;
+  isConnected: boolean;
+  method: string | null | undefined;
+  pubkey: string | null | undefined;
+  onCloistrDomain: boolean;
+}): boolean {
+  return (
+    !!s.signer &&
+    s.isConnected &&
+    s.method === 'nip46' &&
+    !!s.pubkey &&
+    s.onCloistrDomain &&
+    !isReauthWrapped(s.signer)
+  );
+}
+
+/**
+ * The Cloistr signer key id for a pubkey, or null when the user's Cloistr
+ * account has no such key (a session with the user's own bunker). Null means
+ * leave the signer alone: re-minting through Cloistr would be wrong, and a
+ * Cloistr sign-in prompt would be absurd.
+ */
+export function cloistrKeyIdFor(keys: ReadonlyArray<{ id: string; pubkey?: string }>, pubkey: string): string | null {
+  return keys.find((k) => k.pubkey === pubkey)?.id ?? null;
+}
+
 /**
  * Wrap a signer so a locked key is recovered instead of hanging.
  *
@@ -220,6 +265,7 @@ export function wrapSignerWithReauth(initial: SignerInterface, deps: ReauthDeps)
     encrypt: (pk, pt) => call((s) => s.encrypt(pk, pt)),
     decrypt: (pk, ct) => call((s) => s.decrypt(pk, ct)),
   };
+  Object.defineProperty(wrapped, REAUTH_WRAPPED, { value: true });
   if (initial.nip44Encrypt) wrapped.nip44Encrypt = nip44('nip44Encrypt');
   if (initial.nip44Decrypt) wrapped.nip44Decrypt = nip44('nip44Decrypt');
   if (initial.disconnect) wrapped.disconnect = () => inner.disconnect?.() ?? Promise.resolve();

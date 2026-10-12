@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.47.1
+
+- Fix: deploy recovery now also covers sessions opened through the sign-in form. 0.47.0 attached it only to sessions restored on page load, so a user who signed in and kept working got a bare timeout after the next signer deploy. The provider now adopts a form-opened NIP-46 session once it confirms the key is in the user's Cloistr signer account (a session with the user's own bunker is left alone).
+
 ## 0.47.0
 
 - Signer session recovery after a signer deploy (operator ruling 2026-10-12). When the signer is healthy but no replica holds the user's key (409 `key_locked`, or an unanswered NIP-46 request while the signer API answers), apps retry once silently and only then show "Your signer session needs you to sign in again". After signing in, the original request completes; the app stays mounted and open work is kept. An unreachable signer is unchanged: the "try again" screen, never a credential prompt.
