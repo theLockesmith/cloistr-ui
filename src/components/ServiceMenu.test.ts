@@ -32,18 +32,35 @@ describe('ServiceMenu import cycle', () => {
     expect(mod.defaultServices.length).toBeGreaterThan(0);
   });
 
-  it('dist/components/ServiceMenu.js loads without "Cannot access before initialization"', () => {
+  it('compiled ServiceMenu.js loads in Node ESM without "Cannot access before initialization"', () => {
     // The real import cycle manifests in Node ESM, not vitest's transform.
     // Regression: 0.44.0-0.44.1 had ServiceMenu → lib/services → ServiceMenu
     // that threw "Cannot access 'defaultServices' before initialization"
     // when ServiceMenu was the entry point.
+    //
+    // Compiles its OWN copy of the current source. It used to import ./dist,
+    // so it failed in any checkout that had never been built (reported as a
+    // non-reproducing failure, 2026-10-12) and, worse, passed against a STALE
+    // dist while testing old code. Output goes under node_modules/.cache so
+    // Node resolves the package's dependencies from it.
     const { execSync } = require('node:child_process');
+    const { mkdtempSync, rmSync, mkdirSync } = require('node:fs');
     const root = resolve(__dirname, '../..');
-    execSync(
-      `node -e "import('./dist/components/ServiceMenu.js').then(() => process.exit(0)).catch(e => { console.error(e.message); process.exit(1); })"`,
-      { cwd: root, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
-    );
-  });
+    const cacheDir = resolve(root, 'node_modules/.cache');
+    mkdirSync(cacheDir, { recursive: true });
+    const out = mkdtempSync(resolve(cacheDir, 'servicemenu-esm-'));
+    try {
+      execSync(`npx tsc -p tsconfig.json --outDir "${out}" --declaration false --declarationMap false --sourceMap false`, {
+        cwd: root, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      execSync(
+        `node -e "import(process.argv[1]).then(() => process.exit(0)).catch(e => { console.error(e.message); process.exit(1); })" "${resolve(out, 'components/ServiceMenu.js')}"`,
+        { cwd: root, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] },
+      );
+    } finally {
+      rmSync(out, { recursive: true, force: true });
+    }
+  }, 60_000);
 });
 
 describe('defaultServices launcher entries', () => {
