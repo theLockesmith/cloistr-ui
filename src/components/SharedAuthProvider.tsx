@@ -35,6 +35,8 @@ import { useKeySwitcherBootstrap } from '../lib/keySwitcher.js';
 import { planPageLoadRestore } from './authRestorePolicy.js';
 import { useRelayReconnect } from '../lib/useRelayReconnect.js';
 import { AuthRestoreGate } from './AuthRestoreGate.js';
+import { SignerReauthPrompt } from './SignerReauthPrompt.js';
+import { connectWithLockedKeyRecovery, probeSignerApi } from '../lib/signerReauth.js';
 
 /**
  * Backstop for a genuinely hung SSO restore.
@@ -86,16 +88,17 @@ export function classifyRestoreOutcome(opts: {
    * The signer answered 409 key_locked — the replica serving the request did
    * not hold this user's unlocked key.
    *
-   * This is RETRYABLE and must NOT produce a credential prompt. It is a
-   * server-side routing problem, not a user problem: another replica may hold
-   * the key, and a plain page reload can land there and succeed with no
-   * credentials whatsoever. Operator, 2026-08-25: "when the connection times
-   * out, that's not a need to reenter credentials, I can reload the page for a
-   * fresh try without them."
+   * On its own this is NOT a credential prompt: classifying it here still
+   * yields 'signer-unreachable'. Operator, 2026-08-25: "when the connection
+   * times out, that's not a need to reenter credentials, I can reload the page
+   * for a fresh try without them."
    *
-   * Deliberately does NOT get its own outcome. Everything the user should see
-   * is identical to any other transient signer failure: retry, then an "oops,
-   * try again" screen that never mentions credentials.
+   * What changed (operator ruling 2026-10-12): the signer now forwards a
+   * session request to whichever replica holds the key, so key_locked means NO
+   * replica holds it (typically after a signer deploy), and a reload cannot
+   * help. SessionSyncInner therefore retries once silently and, only if the
+   * signer API is healthy and the key is still locked, asks the user to sign in
+   * again (SignerReauthPrompt). An unreachable signer still never does.
    */
   keyLocked?: boolean;
 }): RestoreOutcome {
@@ -218,6 +221,28 @@ function SessionSyncInner({
   const autoConnectAttempted = useRef(false);
   const prevConnectedRef = useRef(authState.isConnected);
 
+  // Re-sign-in for a signer session that has really ended (see
+  // lib/signerReauth.ts). Every caller waiting on it joins the same prompt.
+  const [reauthOpen, setReauthOpen] = useState(false);
+  const reauthWaiters = useRef<Array<{ resolve: () => void; reject: (e: Error) => void }>>([]);
+  const requestReauth = useCallback(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        reauthWaiters.current.push({ resolve, reject });
+        setReauthOpen(true);
+      }),
+    [],
+  );
+  const settleReauth = useCallback((signedIn: boolean) => {
+    const waiters = reauthWaiters.current;
+    reauthWaiters.current = [];
+    setReauthOpen(false);
+    for (const w of waiters) {
+      if (signedIn) w.resolve();
+      else w.reject(new Error('re-sign-in declined'));
+    }
+  }, []);
+
   // Part 4 of the signer-resilience design: reconnect relay WebSockets when
   // the page regains visibility (phone app-switcher, file picker, screen lock)
   // or the network comes back online — before the user next acts. Apps using
@@ -232,7 +257,7 @@ function SessionSyncInner({
     isResolving,
     setIsResolving,
     pin,
-  } = useKeySwitcherBootstrap(signerUrl, autoConnect !== false);
+  } = useKeySwitcherBootstrap(signerUrl, autoConnect !== false, { requestReauth });
 
   // Keep the ref up-to-date so AuthProvider always calls the current closure
   useEffect(() => {
@@ -292,20 +317,34 @@ function SessionSyncInner({
     }, { attempts: 3, baseDelayMs: 600, maxDelayMs: 2500 });
   }, [bootstrapKeys]);
 
+  /**
+   * attemptSsoConnect, plus recovery when the key is locked (see
+   * connectWithLockedKeyRecovery). Any other failure is rethrown unchanged.
+   */
+  const connectWithRecovery = useCallback(
+    () =>
+      connectWithLockedKeyRecovery({
+        connect: attemptSsoConnect,
+        probe: () => probeSignerApi(signerUrl),
+        requestReauth,
+      }),
+    [attemptSsoConnect, requestReauth, signerUrl],
+  );
+
   const [signerUnreachable, setSignerUnreachable] = useState(false);
   const [offerExtension, setOfferExtension] = useState(false);
 
   const retrySignerConnect = useCallback(async (): Promise<boolean> => {
     setSignerUnreachable(false);
     try {
-      const ok = await attemptSsoConnect();
+      const ok = await connectWithRecovery();
       if (!ok) setSignerUnreachable(true);
       return ok;
     } catch {
       setSignerUnreachable(true);
       return false;
     }
-  }, [attemptSsoConnect]);
+  }, [connectWithRecovery]);
 
   const attemptAutoConnect = useCallback(async () => {
     if (autoConnectAttempted.current || isAuthenticated || authState.isConnecting) {
@@ -349,17 +388,18 @@ function SessionSyncInner({
 
       // 1. SSO first: silent reconnect via the signer session (NIP-46 / nostrconnect).
       try {
-        if (await attemptSsoConnect()) {
+        if (await connectWithRecovery()) {
           setSignerUnreachable(false);
           onAutoConnectComplete?.(true);
           return;
         }
       } catch (error) {
         console.warn('SSO bootstrap failed after retries:', error);
-        // NOTE: key_locked is deliberately NOT special-cased here. It is
-        // retryable like any other transient signer failure, and it falls
-        // through to signerUnreachable below so the user gets the retry and
-        // the "try again" screen — never a credential prompt.
+        // NOTE: a locked key was already handled inside connectWithRecovery
+        // (silent retry, then a re-sign-in prompt only if the signer is
+        // healthy). Reaching here means the signer was unreachable, or the
+        // user declined to sign in now: both get the retry and the "try
+        // again" screen, never a credential prompt.
         //
         // No extension call on this path — see the note above.
         //
@@ -381,7 +421,7 @@ function SessionSyncInner({
       // Restore settled (success OR failure) — release the login gate.
       setIsResolving(false);
     }
-  }, [isAuthenticated, authState.isConnecting, attemptSsoConnect, onAutoConnectComplete, setIsResolving]);
+  }, [isAuthenticated, authState.isConnecting, connectWithRecovery, onAutoConnectComplete, setIsResolving]);
 
   /**
    * Attempt auto-connect on mount
@@ -466,6 +506,14 @@ function SessionSyncInner({
       ) : (
         children
       )}
+      {/* Outside the gate on purpose: a locked key found during the on-load
+          restore must be able to ask while the gate is still up. */}
+      <SignerReauthPrompt
+        isOpen={reauthOpen}
+        signerUrl={signerUrl}
+        onSignedIn={() => settleReauth(true)}
+        onDismiss={() => settleReauth(false)}
+      />
     </SharedSessionContext.Provider>
   );
 }

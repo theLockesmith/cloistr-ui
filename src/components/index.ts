@@ -33,6 +33,8 @@ export { AuthRestoreGate } from './AuthRestoreGate.js';
 export { Sidebar, SidebarToggle } from './Sidebar.js';
 export { SignerRecovery } from './SignerRecovery.js';
 export type { SignerRecoveryProps } from './SignerRecovery.js';
+export { SignerReauthPrompt, SIGNER_REAUTH_TITLE } from './SignerReauthPrompt.js';
+export type { SignerReauthPromptProps } from './SignerReauthPrompt.js';
 export type { SidebarProps, SidebarItem } from './Sidebar.js';
 export type { AuthRestoreGateProps } from './AuthRestoreGate.js';
 export type {

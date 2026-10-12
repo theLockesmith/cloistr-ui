@@ -170,3 +170,11 @@ describe('signerFailureMessage', () => {
     expect(signerFailureMessage(signerError('TIMEOUT')).detail).toContain('signing device');
   });
 });
+
+describe('signerFailureMessage / signer session ended', () => {
+  it('a declined re-sign-in is described as paused, not as a refusal', () => {
+    const msg = signerFailureMessage(signerError('SIGNER_SESSION_ENDED'));
+    expect(msg.title).toBe('Signing is paused');
+    expect(msg.detail).not.toMatch(/declined|did not approve/i);
+  });
+});
