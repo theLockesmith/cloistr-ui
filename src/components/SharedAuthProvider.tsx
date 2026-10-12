@@ -271,6 +271,14 @@ function SessionSyncInner({
   // it the same recovery. Same pubkey and method, so no identity-change event
   // fires. Read through refs: registerKey changes identity whenever the key
   // list does, and re-running mid-fetch would drop the adoption.
+  const hasRememberedBunker = () => {
+    try {
+      // @cloistr/auth's storage key for a bunker connection (context.js).
+      return !!window.localStorage.getItem('cloistr:auth:bunkerUrl');
+    } catch {
+      return false;
+    }
+  };
   const adoptRef = useRef(adoptSignerForReauth);
   adoptRef.current = adoptSignerForReauth;
   const registerKeyRef = useRef(registerKey);
@@ -283,6 +291,8 @@ function SessionSyncInner({
         method: authState.method,
         pubkey: authState.pubkey,
         onCloistrDomain: isCloistrDomain(),
+        bunkerUrl: authState.keys?.find((k) => k.pubkey === authState.pubkey)?.bunkerUrl,
+        rememberedBunker: hasRememberedBunker(),
       })
     ) {
       return;
@@ -296,7 +306,7 @@ function SessionSyncInner({
     return () => {
       live = false;
     };
-  }, [signer, authState.isConnected, authState.method, authState.pubkey]);
+  }, [signer, authState.isConnected, authState.method, authState.pubkey, authState.keys]);
 
   /**
    * Sync successful auth to shared session cookies on connect transition

@@ -409,6 +409,8 @@ describe('sessions opened through the sign-in form get recovery too', () => {
     ['an extension (NIP-07): we do not control that key', { signer: fakeSigner(), method: 'nip07' as const }],
     ['off a Cloistr host', { signer: fakeSigner(), onCloistrDomain: false }],
     ['no pubkey', { signer: fakeSigner(), pubkey: null }],
+    ['the user\'s OWN bunker, even for a key also imported into Cloistr (review of !68)', { signer: fakeSigner(), bunkerUrl: 'bunker://abc?relay=wss://r' }],
+    ['a bunker address remembered by @cloistr/auth', { signer: fakeSigner(), rememberedBunker: true }],
   ])('does not adopt: %s', (_n, over) => {
     expect(shouldAdoptForReauth({ ...base, ...over })).toBe(false);
   });

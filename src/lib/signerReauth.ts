@@ -147,8 +147,16 @@ export function isReauthWrapped(signer: unknown): boolean {
  * signed in and kept working got a bare timeout after the next signer deploy.
  * Measured live 2026-10-12. Only a connected NIP-46 session on a Cloistr host,
  * not already wrapped; an extension (NIP-07) holds its own key and is never
- * ours to re-mint. Whether the key actually lives in the user's Cloistr signer
- * (and not in their own bunker) is checked separately: see cloistrKeyIdFor.
+ * ours to re-mint.
+ *
+ * NEVER a bunker session (review of !68): a user may connect their OWN bunker
+ * for a key they have also imported into Cloistr, so "the key is in the
+ * Cloistr account" does not make the session Cloistr's. Adopting it would
+ * re-mint their signing through the Cloistr signer, a custody path they did not
+ * choose, or show a Cloistr prompt for a bunker session. @cloistr/auth records
+ * bunkerUrl on a bunker identity and remembers it in storage; a session opened
+ * through the Cloistr sign-in form has neither. Any doubt leaves the signer
+ * alone, which is 0.47.0's behaviour. cloistrKeyIdFor is the second check.
  */
 export function shouldAdoptForReauth(s: {
   signer: unknown;
@@ -156,8 +164,14 @@ export function shouldAdoptForReauth(s: {
   method: string | null | undefined;
   pubkey: string | null | undefined;
   onCloistrDomain: boolean;
+  /** bunkerUrl on the active KeyIdentity, if any. */
+  bunkerUrl?: string | null;
+  /** @cloistr/auth has a bunker address in storage. */
+  rememberedBunker?: boolean;
 }): boolean {
   return (
+    !s.bunkerUrl &&
+    !s.rememberedBunker &&
     !!s.signer &&
     s.isConnected &&
     s.method === 'nip46' &&
