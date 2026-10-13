@@ -193,6 +193,21 @@ export function shouldAdoptForReauth(s: {
 }
 
 /**
+ * The bunker address on the active identity, if it has one. This is what the
+ * provider passes to shouldAdoptForReauth as bunkerUrl. It reads the
+ * @cloistr/auth identity list, never the Cloistr signer's key list: a bunker
+ * key that is ALSO imported into Cloistr is in both, and only this one says
+ * the session is the bunker's.
+ */
+export function activeBunkerUrl(
+  identities: ReadonlyArray<{ pubkey: string; bunkerUrl?: string }> | null | undefined,
+  pubkey: string | null | undefined,
+): string | undefined {
+  if (!pubkey) return undefined;
+  return identities?.find((k) => k.pubkey === pubkey)?.bunkerUrl || undefined;
+}
+
+/**
  * The Cloistr signer key id for a pubkey, or null when the user's Cloistr
  * account has no such key (a session with the user's own bunker). Null means
  * leave the signer alone: re-minting through Cloistr would be wrong, and a

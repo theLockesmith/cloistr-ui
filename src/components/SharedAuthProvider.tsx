@@ -36,7 +36,7 @@ import { planPageLoadRestore } from './authRestorePolicy.js';
 import { useRelayReconnect } from '../lib/useRelayReconnect.js';
 import { AuthRestoreGate } from './AuthRestoreGate.js';
 import { SignerReauthPrompt } from './SignerReauthPrompt.js';
-import { connectWithLockedKeyRecovery, probeSignerApi, shouldAdoptForReauth } from '../lib/signerReauth.js';
+import { activeBunkerUrl, connectWithLockedKeyRecovery, probeSignerApi, shouldAdoptForReauth } from '../lib/signerReauth.js';
 import { unsealSession } from '../lib/staySignedIn.js';
 import { useSessionKeepAlive } from '../lib/useSessionKeepAlive.js';
 
@@ -297,7 +297,7 @@ function SessionSyncInner({
         method: authState.method,
         pubkey: authState.pubkey,
         onCloistrDomain: isCloistrDomain(),
-        bunkerUrl: authState.keys?.find((k) => k.pubkey === authState.pubkey)?.bunkerUrl,
+        bunkerUrl: activeBunkerUrl(authState.keys, authState.pubkey),
         rememberedBunker: hasRememberedBunker(),
       })
     ) {
