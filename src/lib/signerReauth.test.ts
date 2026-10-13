@@ -10,6 +10,7 @@ import {
   isReauthWrapped,
   shouldAdoptForReauth,
   cloistrKeyIdFor,
+  activeBunkerUrl,
 } from './signerReauth.js';
 
 /** Mimics @cloistr/auth's Nip46Error shape without importing it. */
@@ -420,6 +421,38 @@ describe('sessions opened through the sign-in form get recovery too', () => {
     expect(cloistrKeyIdFor(keys, 'pk')).toBe('k2');
     expect(cloistrKeyIdFor(keys, 'zz')).toBeNull();
     expect(cloistrKeyIdFor([{ id: 'k3' }], 'pk')).toBeNull();
+  });
+
+  // Board #314. The bunker's pubkey IS in the Cloistr key list here, so the
+  // key-list check alone would adopt it. Composed exactly as SharedAuthProvider
+  // composes it; the control proves the bunker address is what refuses.
+  describe('a bunker identity whose key is also in the Cloistr account', () => {
+    const cloistrKeys = [{ id: 'k1', pubkey: 'aa' }, { id: 'k2', pubkey: 'pk' }];
+    const guard = (identities: Array<{ pubkey: string; bunkerUrl?: string }>) =>
+      shouldAdoptForReauth({
+        ...base,
+        signer: fakeSigner(),
+        bunkerUrl: activeBunkerUrl(identities, base.pubkey),
+        rememberedBunker: false,
+      });
+
+    it('is in the Cloistr key list (so the second check would not stop it)', () => {
+      expect(cloistrKeyIdFor(cloistrKeys, 'pk')).toBe('k2');
+    });
+
+    it('is NOT adopted', () => {
+      expect(guard([{ pubkey: 'aa' }, { pubkey: 'pk', bunkerUrl: 'bunker://pk?relay=wss://r' }])).toBe(false);
+    });
+
+    it('control: the same key opened through the Cloistr form IS adopted', () => {
+      expect(guard([{ pubkey: 'aa' }, { pubkey: 'pk' }])).toBe(true);
+    });
+
+    it('reads the ACTIVE identity, not another identity that happens to be a bunker', () => {
+      expect(guard([{ pubkey: 'aa', bunkerUrl: 'bunker://aa' }, { pubkey: 'pk' }])).toBe(true);
+      expect(activeBunkerUrl(null, 'pk')).toBeUndefined();
+      expect(activeBunkerUrl([{ pubkey: 'pk', bunkerUrl: 'bunker://pk' }], null)).toBeUndefined();
+    });
   });
 });
 
