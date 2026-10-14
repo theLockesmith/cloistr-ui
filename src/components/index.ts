@@ -56,8 +56,14 @@ export type { ModalProps, ModalSize, ConfirmModalProps } from './Modal.js';
 
 export { ThemeProvider, useTheme, useThemeOptional } from './ThemeProvider.js';
 export type { ThemeProviderProps, ThemeContextValue, ThemeMode } from './ThemeProvider.js';
+/** @deprecated ThemeToggle is no longer a public API. Use the theme control
+ * inside ServiceMenu instead. This re-export will be removed in the next major. */
 export { ThemeToggle } from './ThemeToggle.js';
 export type { ThemeToggleProps } from './ThemeToggle.js';
+
+export { NotificationProvider, useNotifications } from './NotificationProvider.js';
+export type { NotificationProviderProps, NotificationState } from './NotificationProvider.js';
+export { NotificationBell } from './NotificationBell.js';
 
 export { AppShell, AppShellToggle, appShellChrome, menuItemState, isSeparator, nextMenuIndex, useIsMobile, APPSHELL_BREAKPOINT } from './AppShell.js';
 export type { AppShellProps, MenuSection, MenuItem, MenuEntry, MenuSeparator } from './AppShell.js';

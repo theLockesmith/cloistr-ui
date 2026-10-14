@@ -97,3 +97,16 @@ export {
 } from './staySignedIn.js';
 export type { StayChoice, StayGrant, StaySignedInOptions, StaySignedInRow } from './staySignedIn.js';
 export { useSessionKeepAlive } from './useSessionKeepAlive.js';
+
+export {
+  registerServiceWorker,
+  browserPwaDeps,
+  holdBusy,
+  whileBusy,
+  busyWhileRunning,
+  hasBusyHolders,
+  hasUnsavedInput,
+  FRESH_LOAD_WINDOW_MS,
+  UPDATE_CHECK_INTERVAL_MS,
+} from './pwaUpdate.js';
+export type { PwaDeps, InputScanRoot } from './pwaUpdate.js';

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNostrAuth } from '../auth/index.js';
 import { ServiceMenu, defaultServices } from './ServiceMenu.js';
+import { NotificationBell } from './NotificationBell.js';
 import { UserMenu } from './UserMenu.js';
 import { LoginModal } from './LoginModal.js';
 import { getSignerUrl } from '../lib/runtimeConfig.js';
@@ -49,7 +50,11 @@ export interface HeaderProps {
   settingsUrl?: string;
   /** Custom signer URL (defaults to the canonical Cloistr signer) */
   signerUrl?: string;
-  /** Additional header content (right side) */
+  /**
+   * @deprecated Passing children to Header fragments the shared nav. Use the
+   * notification provider for bells and the ServiceMenu for theme controls.
+   * This prop will be removed in the next major version.
+   */
   children?: React.ReactNode;
   /**
    * Explicit auth state for apps that manage their own session (e.g. backend-JWT
@@ -73,6 +78,13 @@ export function Header({
   children,
   auth,
 }: HeaderProps) {
+  if (children && process.env.NODE_ENV !== 'production') {
+    console.warn(
+      '[@cloistr/ui] Header: the children prop is deprecated and will be removed ' +
+      'in the next major version. Use NotificationProvider for bells and the ' +
+      'ServiceMenu for theme controls.',
+    );
+  }
   const signerUrl = signerUrlProp || getSignerUrl();
   const { authState } = useNostrAuth();
   const [showLoginModal, setShowLoginModal] = useState(false);
@@ -106,8 +118,7 @@ export function Header({
         </div>
 
         <div className="cloistr-header-right">
-          {/* Theme control lives inside the ServiceMenu apps panel ("Appearance"
-              section) — a single home for it. No standalone toggle here. */}
+          <NotificationBell />
           <ServiceMenu services={defaultServices} activeServiceId={activeServiceId} />
           {children}
           {isAuthed ? (
