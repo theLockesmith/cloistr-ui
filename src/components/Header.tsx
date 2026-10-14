@@ -65,6 +65,8 @@ export interface HeaderProps {
   auth?: HeaderAuth;
 }
 
+let childrenWarned = false;
+
 /**
  * Shared header component with logo, service menu, and auth
  */
@@ -78,7 +80,8 @@ export function Header({
   children,
   auth,
 }: HeaderProps) {
-  if (children && process.env.NODE_ENV !== 'production') {
+  if (children && !childrenWarned && process.env.NODE_ENV !== 'production') {
+    childrenWarned = true;
     console.warn(
       '[@cloistr/ui] Header: the children prop is deprecated and will be removed ' +
       'in the next major version. Use NotificationProvider for bells and the ' +

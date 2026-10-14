@@ -93,8 +93,8 @@ export interface MenuSection {
  * hamburgers it replaced, and the pre-merge gate caught that on its first run
  * against already-migrated code.
  *
- * Apps render <Header><AppShellToggle /></Header> inside <AppShell> so the
- * trigger is a real descendant of <header>.
+ * Apps render <AppShellToggle /> inside <AppShell> and it portals into the
+ * Header's slot, so the trigger is a real descendant of <header>.
  */
 interface AppShellContextValue {
   /** Mobile drawer open. */
