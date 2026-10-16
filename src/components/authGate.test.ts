@@ -81,3 +81,35 @@ describe('shouldGateRestore', () => {
     })).toBe(true);
   });
 });
+
+describe('restoreSettled is bounded (structural)', () => {
+  // Both providers must settle restoreSettled within a timeout so the gate
+  // cannot hold forever if the signer neither connects nor definitively fails.
+
+  it('SharedAuthProvider safety cap sets restoreSettled', () => {
+    const src = require('node:fs').readFileSync(
+      require('node:url').fileURLToPath(new URL('./SharedAuthProvider.tsx', import.meta.url)),
+      'utf8',
+    ) as string;
+    // The safety cap timeout must call setRestoreSettled(true).
+    expect(src).toMatch(/setTimeout\(\(\) => \{[^}]*setRestoreSettled\(true\)[^}]*\}, SSO_SAFETY_CAP_MS\)/);
+  });
+
+  it('BackendAuthProvider has a safety cap that sets restoreSettled', () => {
+    const src = require('node:fs').readFileSync(
+      require('node:url').fileURLToPath(new URL('./BackendAuthProvider.tsx', import.meta.url)),
+      'utf8',
+    ) as string;
+    // The bootstrap effect must have a timeout that settles the flag.
+    expect(src).toMatch(/setTimeout\(\(\) => \{[^}]*setRestoreSettled\(true\)/);
+    expect(src).toMatch(/30[_,]?000/);
+  });
+
+  it('BackendAuthProvider watches token to settle restoreSettled', () => {
+    const src = require('node:fs').readFileSync(
+      require('node:url').fileURLToPath(new URL('./BackendAuthProvider.tsx', import.meta.url)),
+      'utf8',
+    ) as string;
+    expect(src).toMatch(/useEffect\(\(\) => \{\s*if \(token\) setRestoreSettled\(true\)/);
+  });
+});

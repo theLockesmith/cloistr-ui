@@ -647,14 +647,26 @@ function BackendAuthInner({ children, config, resolveSignerRef }: InnerProviderP
     }
     bootstrapAttempted.current = true;
 
+    // Safety cap: bound restoreSettled so the gate cannot hold forever if the
+    // bootstrap or backend exchange hangs. Same 30s window as
+    // SharedAuthProvider's SSO_SAFETY_CAP_MS. Cleared on any normal resolution.
+    const safetyCap = setTimeout(() => {
+      setRestoreSettled(true);
+      setIsResolving(false);
+    }, 30_000);
+
     bootstrapKeys().then((ok) => {
-      if (!ok) { setRestoreSettled(true); setIsResolving(false); }
+      if (!ok) { clearTimeout(safetyCap); setRestoreSettled(true); setIsResolving(false); }
       // If ok, the ssoSigner effect fires once the signer is registered and
-      // releases isResolving after the backend exchange.
+      // releases isResolving after the backend exchange. safetyCap bounds
+      // the whole flow (bootstrap + backend JWT exchange).
     }).catch(() => {
+      clearTimeout(safetyCap);
       setRestoreSettled(true);
       setIsResolving(false);
     });
+
+    return () => clearTimeout(safetyCap);
   }, [bootstrapKeys, setIsResolving]);
 
   // Once bootstrap (or any other path) yields a live signer, exchange it for
@@ -671,6 +683,13 @@ function BackendAuthInner({ children, config, resolveSignerRef }: InnerProviderP
       });
     }
   }, [ssoSigner, token, performBackendAuth, setIsResolving]);
+
+  // Settle immediately when the backend already has a valid JWT. Covers the
+  // path where bootstrapKeys(true) succeeds but the ssoSigner exchange is
+  // skipped because initAuth already validated a stored token.
+  useEffect(() => {
+    if (token) setRestoreSettled(true);
+  }, [token]);
 
   // Cleanup on unmount
   useEffect(() => {

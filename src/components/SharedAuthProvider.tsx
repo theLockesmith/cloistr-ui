@@ -435,6 +435,7 @@ function SessionSyncInner({
 
   const attemptAutoConnect = useCallback(async () => {
     if (autoConnectAttempted.current || isAuthenticated || authState.isConnecting) {
+      setRestoreSettled(true);
       setIsResolving(false);
       return;
     }
@@ -512,30 +513,23 @@ function SessionSyncInner({
     }
   }, [isAuthenticated, authState.isConnecting, connectWithRecovery, onAutoConnectComplete, setIsResolving]);
 
-  /**
-   * Attempt auto-connect on mount
-   */
+  // Safety cap in its own effect so it cannot restart when attemptAutoConnect
+  // changes identity during the restore handshake. autoConnect and
+  // setIsResolving are both stable, so this fires once on mount.
+  useEffect(() => {
+    if (autoConnect === false) return;
+    const safety = setTimeout(() => { setRestoreSettled(true); setIsResolving(false); }, SSO_SAFETY_CAP_MS);
+    return () => clearTimeout(safety);
+  }, [autoConnect, setIsResolving]);
+
   useEffect(() => {
     if (autoConnect === false) {
       setRestoreSettled(true);
       setIsResolving(false);
       return;
     }
-    // Small delay to let the page settle.
     const timeout = setTimeout(attemptAutoConnect, 100);
-    // Safety cap: a last-resort backstop for a genuinely hung restore. It must
-    // sit ABOVE the NIP-46 relay handshake ceiling (bootstrapKeys →
-    // startNostrConnect uses CONNECT_TIMEOUT_MS=10s, and the ack triggers a
-    // second connectNip46 round-trip), otherwise it fires mid-handshake and
-    // flips the app to logged-out while a valid SSO session is still resolving
-    // — the intermittent false-logout seen on cross-subdomain app-switch. The
-    // happy path never waits this long: attemptAutoConnect's finally releases
-    // the gate the moment bootstrapKeys settles (success or failure).
-    const safety = setTimeout(() => { setRestoreSettled(true); setIsResolving(false); }, SSO_SAFETY_CAP_MS);
-    return () => {
-      clearTimeout(timeout);
-      clearTimeout(safety);
-    };
+    return () => clearTimeout(timeout);
   }, [autoConnect, attemptAutoConnect, setIsResolving]);
 
   /**
