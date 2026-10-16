@@ -42,6 +42,25 @@ describe('Lightning confirm_account (structural)', () => {
     const src = readLoginModal();
     expect(src).toMatch(/['"]lightning-confirm['"]/);
   });
+
+  it('409 resumes polling instead of restarting the challenge', () => {
+    const src = readLoginModal();
+    expect(src).toMatch(/res\.status === 409/);
+    expect(src).not.toMatch(/409[\s\S]{0,60}handleLightningStart/);
+    expect(src).toMatch(/409[\s\S]{0,100}startLightningStatusPoll/);
+  });
+
+  it('startLightningStatusPoll is extracted for reuse by confirm handler', () => {
+    const src = readLoginModal();
+    const calls = (src.match(/startLightningStatusPoll/g) ?? []).length;
+    expect(calls).toBeGreaterThanOrEqual(3);
+  });
+
+  it('400 expired restarts the login flow', () => {
+    const src = readLoginModal();
+    expect(src).toMatch(/400[\s\S]{0,80}expired/);
+    expect(src).toMatch(/expired[\s\S]{0,80}method/);
+  });
 });
 
 // ── Component: prop-driven harness mirroring the confirm flow ─────────────

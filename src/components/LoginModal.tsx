@@ -414,6 +414,47 @@ export function LoginModal({ isOpen, onClose, signerUrl: signerUrlProp, mode = '
     }
   };
 
+  // Extracted so handleLightningConfirm can resume polling on 409.
+  const startLightningStatusPoll = (capturedSessionId: string) => {
+    stopLightningPoll();
+    const api = `${signerUrl}/api/v1`;
+    const interval = setInterval(() => {
+      void (async () => {
+        try {
+          const statusRes = await fetch(
+            `${api}/users/lightning/status?session_id=${encodeURIComponent(capturedSessionId)}`,
+            { credentials: 'include' },
+          );
+          if (!statusRes.ok) {
+            const b = await statusRes.json().catch(() => ({}));
+            const status = (b as { status?: string }).status;
+            stopLightningPoll();
+            setLocalError(status === 'expired' ? 'QR code expired — try again' : 'Lightning login failed');
+            return;
+          }
+          const body = (await statusRes.json()) as { success: boolean; status?: string; username?: string };
+          if (!body.success) {
+            if (body.status === 'confirm_account' && body.username) {
+              stopLightningPoll();
+              setLightningConfirmUsername(body.username);
+              setScreen('lightning-confirm');
+            }
+            return;
+          }
+          stopLightningPoll();
+          if (mode === 'session') {
+            onClose();
+            return;
+          }
+          await handleLoginWithCloistr();
+        } catch {
+          // transient network error — keep polling
+        }
+      })();
+    }, 2000);
+    lightningPollRef.current = interval;
+  };
+
   // Lightning (LNURL-auth) login.
   // 1. POST /users/lightning/challenge → get lnurl + session_id
   // 2. Show QR + link for wallet to scan/open
@@ -444,47 +485,7 @@ export function LoginModal({ isOpen, onClose, signerUrl: signerUrlProp, mode = '
       setLightningSessionId(sessionId);
       setScreen('lightning');
 
-      // Start polling — captured sessionId is stable for this login attempt.
-      const capturedSessionId = sessionId;
-      const interval = setInterval(() => {
-        void (async () => {
-          try {
-            const statusRes = await fetch(
-              `${api}/users/lightning/status?session_id=${encodeURIComponent(capturedSessionId)}`,
-              { credentials: 'include' },
-            );
-            if (!statusRes.ok) {
-              // 400 = expired (or unknown error)
-              const b = await statusRes.json().catch(() => ({}));
-              const status = (b as { status?: string }).status;
-              stopLightningPoll();
-              setLocalError(status === 'expired' ? 'QR code expired — try again' : 'Lightning login failed');
-              return;
-            }
-            const body = (await statusRes.json()) as { success: boolean; status?: string; username?: string };
-            if (!body.success) {
-              if (body.status === 'confirm_account' && body.username) {
-                stopLightningPoll();
-                setLightningConfirmUsername(body.username);
-                setScreen('lightning-confirm');
-              }
-              return;
-            }
-
-            // success: cookie is set by the signer
-            stopLightningPoll();
-            if (mode === 'session') {
-              onClose();
-              return;
-            }
-            await handleLoginWithCloistr();
-          } catch {
-            // transient network error — keep polling
-          }
-        })();
-      }, 2000);
-
-      lightningPollRef.current = interval;
+      startLightningStatusPoll(sessionId);
     } catch (err) {
       setLocalError((err as Error).message);
     }
@@ -506,7 +507,8 @@ export function LoginModal({ isOpen, onClose, signerUrl: signerUrlProp, mode = '
       if (!res.ok) {
         const b = (await res.json().catch(() => ({}))) as { status?: string; error?: string };
         if (res.status === 409) {
-          void handleLightningStart();
+          setScreen('lightning');
+          startLightningStatusPoll(lightningSessionId);
           return;
         }
         if (res.status === 400 && b.status === 'expired') {
