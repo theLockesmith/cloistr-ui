@@ -23,10 +23,10 @@
  *     out, that's not a need to reenter credentials."
  *   - a refusal (CANCELLED, REMOTE_ERROR, ...) is never retried.
  *
- * Health is read from GET /api/v1/keys, not /health: /health sends no CORS
- * headers, so a browser on an app origin cannot read it and would report a
- * healthy signer as down. The keys API is CORS-enabled, is already called by
- * every app, and its 401 also tells us when the session itself has ended.
+ * Health is read from GET /api/v1/users/session (signer MR !225), which
+ * distinguishes a live session (the NIP-46 timeout was a relay issue) from a
+ * locked key or an ended session (both need recovery). /health is unusable
+ * from a browser: no CORS headers.
  */
 import type { SignerInterface } from '@cloistr/auth';
 
@@ -39,7 +39,7 @@ export const KEY_LOCKED = 'key_locked';
 /** Error code for a call that failed because the user declined to sign in again. */
 export const SIGNER_SESSION_ENDED = 'SIGNER_SESSION_ENDED';
 
-export type SignerApiHealth = 'healthy' | 'session-expired' | 'unreachable';
+export type SignerApiHealth = 'healthy' | 'key-locked' | 'session-expired' | 'unreachable';
 export type FailureDecision = 'reauth' | 'unreachable' | 'passthrough';
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
@@ -86,14 +86,28 @@ function isGrantGone(err: unknown): boolean {
   return err instanceof Error && GRANT_GONE_MESSAGE.test(err.message);
 }
 
-/** Is the signer API up, and is this browser's session still alive? */
+/**
+ * Is the signer API up, is this browser's session still alive, and is the
+ * signing key unlocked?
+ *
+ * Uses GET /api/v1/users/session (signer MR !225). The endpoint itself may
+ * take up to ~5 s right after a login because it tries to unlock the key;
+ * callers must not add a short timeout that would misclassify that as
+ * unreachable.
+ */
 export async function probeSignerApi(
   signerUrl: string,
   fetchFn: FetchLike = (i, init) => fetch(i, init),
 ): Promise<SignerApiHealth> {
   try {
-    const res = await fetchFn(`${signerUrl}/api/v1/keys`, { credentials: 'include' });
-    if (res.ok) return 'healthy';
+    const res = await fetchFn(`${signerUrl}/api/v1/users/session`, { credentials: 'include' });
+    if (res.ok) {
+      try {
+        const body = await res.json() as { state?: string };
+        if (body.state === 'key_locked') return 'key-locked';
+      } catch { /* non-JSON 200: treat as healthy */ }
+      return 'healthy';
+    }
     if (res.status === 401) return 'session-expired';
     return 'unreachable';
   } catch {
@@ -107,12 +121,20 @@ export async function probeSignerApi(
  * Only a key_locked refusal, an unanswered request, or a replaced session can
  * be recovered; every other error (including a refusal) passes through
  * untouched. Among those, an unreachable signer is NEVER a reason to ask for
- * credentials. 'reauth' starts recovery; whether it ends in a prompt is decided
- * there, and only a key_locked re-mint or an ended session (401) gets one.
+ * credentials.
+ *
+ * A timeout while the session is live (probe returned 'healthy') means the
+ * NIP-46 relay path failed, not the key. That is NOT a reason to re-mint or
+ * prompt — the error passes through for the app-level retry to handle.
+ * A key_locked or grant_gone error from NIP-46 always triggers recovery
+ * regardless of the probe, because the NIP-46 layer already confirmed the
+ * key state.
  */
 export function decideAfterSignerFailure(err: unknown, health: SignerApiHealth): FailureDecision {
   if (!isKeyLockedError(err) && !isTimeout(err) && !isGrantGone(err)) return 'passthrough';
   if (health === 'unreachable') return 'unreachable';
+  if (isKeyLockedError(err) || isGrantGone(err)) return 'reauth';
+  if (health === 'healthy') return 'passthrough';
   return 'reauth';
 }
 
@@ -253,11 +275,10 @@ export function wrapSignerWithReauth(initial: SignerInterface, deps: ReauthDeps)
           swap(await deps.remint());
           return;
         } catch (err) {
-          // Prompt ONLY when the signer said no replica holds the key, or the
-          // session itself has ended (401 from the probe). A re-mint that
-          // TIMES OUT means the relay path is failing while the signer API is
-          // up: that is 'try again', never a credential prompt. Review of !67
-          // reproduced exactly that: relay down, prompt shown.
+          // Prompt ONLY when the signer said no replica holds the key, or
+          // the session itself has ended (401 or key-locked from the probe).
+          // A re-mint that TIMES OUT means the relay path is failing while
+          // the signer API is up: 'try again', never a credential prompt.
           if (!isKeyLockedError(err) && health !== 'session-expired') throw err;
         }
         try {
@@ -284,7 +305,7 @@ export function wrapSignerWithReauth(initial: SignerInterface, deps: ReauthDeps)
       // DISCONNECTED; those rerun on the new session like any other failure
       // a recovery fixes.
       if (inner !== used && codeOf(err) === 'DISCONNECTED') return op(inner);
-      if (decideAfterSignerFailure(err, 'healthy') === 'passthrough') throw err;
+      if (!isKeyLockedError(err) && !isTimeout(err) && !isGrantGone(err)) throw err;
       if (inner !== used) return op(inner);
       const health = await deps.probe();
       if (decideAfterSignerFailure(err, health) !== 'reauth') throw err;

@@ -45,17 +45,21 @@ describe('isKeyLockedError', () => {
 });
 
 describe('probeSignerApi', () => {
-  // /health sends no CORS headers, so a browser on an app origin cannot read it
-  // and would report a healthy signer as down. /api/v1/keys is CORS-enabled and
-  // already called by every app, and it also says whether the session is alive.
-  it('2xx from the keys API is healthy', async () => {
-    const f = vi.fn(async () => new Response('[]', { status: 200 }));
+  it('state:live from the session endpoint is healthy', async () => {
+    const f = vi.fn(async () => new Response(JSON.stringify({ state: 'live', signing_pubkey: 'pk' }), { status: 200 }));
     expect(await probeSignerApi('https://s', f)).toBe('healthy');
-    expect(f).toHaveBeenCalledWith('https://s/api/v1/keys', { credentials: 'include' });
+    expect(f).toHaveBeenCalledWith('https://s/api/v1/users/session', { credentials: 'include' });
+  });
+  it('state:key_locked is key-locked', async () => {
+    const body = JSON.stringify({ state: 'key_locked', signing_pubkey: 'pk', needs_split_half: true });
+    expect(await probeSignerApi('https://s', async () => new Response(body, { status: 200 }))).toBe('key-locked');
+  });
+  it('a 200 with no JSON body is healthy (forward compat)', async () => {
+    expect(await probeSignerApi('https://s', async () => new Response('ok', { status: 200 }))).toBe('healthy');
   });
   it('401 means the session itself has ended', async () => {
-    const f = vi.fn(async () => new Response('{}', { status: 401 }));
-    expect(await probeSignerApi('https://s', f)).toBe('session-expired');
+    const body = JSON.stringify({ code: 'session_gone', reason: 'expired' });
+    expect(await probeSignerApi('https://s', async () => new Response(body, { status: 401 }))).toBe('session-expired');
   });
   it('5xx or a network error is unreachable', async () => {
     expect(await probeSignerApi('https://s', async () => new Response('', { status: 503 }))).toBe('unreachable');
@@ -65,30 +69,36 @@ describe('probeSignerApi', () => {
 
 describe('decideAfterSignerFailure', () => {
   it('a timeout WRAPPED by @cloistr/auth (code SIGN_EVENT_FAILED) is still a timeout', () => {
-    // nip46.js signEvent catches the TIMEOUT and rethrows with its own code,
-    // keeping only the message. Measured live 2026-10-12: this exact text.
     const wrapped = signerError(
       'SIGN_EVENT_FAILED',
       'Failed to sign event: Request timed out after 30000ms (relays: wss://relay.cloistr.xyz)',
     );
-    expect(decideAfterSignerFailure(wrapped, 'healthy')).toBe('reauth');
+    // Session is live: the relay failed, not the key.
+    expect(decideAfterSignerFailure(wrapped, 'healthy')).toBe('passthrough');
+    // Key is locked: recovery needed.
+    expect(decideAfterSignerFailure(wrapped, 'key-locked')).toBe('reauth');
     expect(decideAfterSignerFailure(wrapped, 'unreachable')).toBe('unreachable');
     // A real refusal wrapped the same way is NOT a timeout.
     expect(decideAfterSignerFailure(signerError('SIGN_EVENT_FAILED', 'Failed to sign event: denied'), 'healthy')).toBe('passthrough');
   });
 
-  it('key_locked from a healthy signer is a re-sign-in candidate', () => {
+  it('key_locked from any reachable signer is always a re-sign-in candidate', () => {
     expect(decideAfterSignerFailure(keyLocked(), 'healthy')).toBe('reauth');
+    expect(decideAfterSignerFailure(keyLocked(), 'key-locked')).toBe('reauth');
+    expect(decideAfterSignerFailure(keyLocked(), 'session-expired')).toBe('reauth');
   });
-  it('a timeout from a healthy signer is a re-sign-in candidate', () => {
-    expect(decideAfterSignerFailure(timeout(), 'healthy')).toBe('reauth');
+  it('no reply + session live → passthrough (relay issue, not session issue)', () => {
+    expect(decideAfterSignerFailure(timeout(), 'healthy')).toBe('passthrough');
+  });
+  it('no reply + key-locked → reauth', () => {
+    expect(decideAfterSignerFailure(timeout(), 'key-locked')).toBe('reauth');
+  });
+  it('no reply + session gone → reauth', () => {
+    expect(decideAfterSignerFailure(timeout(), 'session-expired')).toBe('reauth');
   });
   it('an unreachable signer NEVER asks for credentials (operator, 2026-08-25)', () => {
     expect(decideAfterSignerFailure(timeout(), 'unreachable')).toBe('unreachable');
     expect(decideAfterSignerFailure(keyLocked(), 'unreachable')).toBe('unreachable');
-  });
-  it('an ended session is a re-sign-in too', () => {
-    expect(decideAfterSignerFailure(timeout(), 'session-expired')).toBe('reauth');
   });
   it('a refusal or any other error passes through untouched', () => {
     expect(decideAfterSignerFailure(signerError('CANCELLED'), 'healthy')).toBe('passthrough');
@@ -100,7 +110,7 @@ describe('decideAfterSignerFailure', () => {
 describe('wrapSignerWithReauth', () => {
   function deps(over: Partial<Parameters<typeof wrapSignerWithReauth>[1]> = {}) {
     return {
-      probe: vi.fn(async () => 'healthy' as const),
+      probe: vi.fn(async () => 'key-locked' as const),
       remint: vi.fn(async () => fakeSigner()),
       requestReauth: vi.fn(async () => {}),
       ...over,
@@ -117,7 +127,17 @@ describe('wrapSignerWithReauth', () => {
     expect(d.remint).not.toHaveBeenCalled();
   });
 
-  it('timeout on a healthy signer: ONE silent retry on a fresh session, no prompt when it works', async () => {
+  it('no reply + session live: rethrows with no recovery (the relay failed, not the key)', async () => {
+    const err = timeout();
+    const inner = fakeSigner({ signEvent: vi.fn(async () => { throw err; }) });
+    const d = deps({ probe: vi.fn(async () => 'healthy' as const) });
+    const s = wrapSignerWithReauth(inner, d);
+    await expect(s.signEvent(ev)).rejects.toBe(err);
+    expect(d.remint).not.toHaveBeenCalled();
+    expect(d.requestReauth).not.toHaveBeenCalled();
+  });
+
+  it('no reply + key-locked: ONE silent retry on a fresh session, no prompt when it works', async () => {
     const inner = fakeSigner({ signEvent: vi.fn(async () => { throw timeout(); }) });
     const fresh = fakeSigner();
     const d = deps({ remint: vi.fn(async () => fresh) });
@@ -129,7 +149,25 @@ describe('wrapSignerWithReauth', () => {
     expect(d.requestReauth).not.toHaveBeenCalled();
   });
 
-  it('silent retry fails with key_locked: prompt, then re-mint and retry the SAME call', async () => {
+  it('no reply + session gone: silent retry fails, prompt, then re-mint and retry', async () => {
+    const inner = fakeSigner({ signEvent: vi.fn(async () => { throw timeout(); }) });
+    const after = fakeSigner();
+    const remint = vi.fn()
+      .mockRejectedValueOnce(keyLocked())
+      .mockResolvedValueOnce(after);
+    const d = deps({
+      probe: vi.fn(async () => 'session-expired' as const),
+      remint,
+    });
+    const s = wrapSignerWithReauth(inner, d);
+    const out = await s.signEvent(ev);
+    expect(d.requestReauth).toHaveBeenCalledOnce();
+    expect(remint).toHaveBeenCalledTimes(2);
+    expect(after.signEvent).toHaveBeenCalledWith(ev);
+    expect(out.sig).toBe('sig');
+  });
+
+  it('silent retry fails with key_locked + key-locked probe: prompt, then re-mint', async () => {
     const inner = fakeSigner({ signEvent: vi.fn(async () => { throw timeout(); }) });
     const after = fakeSigner();
     const remint = vi.fn()
@@ -276,26 +314,23 @@ describe('connectWithLockedKeyRecovery (page-load restore)', () => {
 });
 
 describe('review !67: a relay outage must never prompt', () => {
-  it('sign times out, probe healthy, the silent re-mint ALSO times out: rethrow, no prompt', async () => {
+  it('timeout + session live: no re-mint, no prompt, rethrows immediately', async () => {
     const inner = fakeSigner({ signEvent: vi.fn(async () => { throw timeout(); }) });
-    const remint = vi.fn(async () => { throw timeout(); });
+    const remint = vi.fn(async () => fakeSigner());
     const requestReauth = vi.fn(async () => {});
     const s = wrapSignerWithReauth(inner, { probe: vi.fn(async () => 'healthy' as const), remint, requestReauth });
     await expect(s.signEvent(ev)).rejects.toThrow();
-    expect(remint).toHaveBeenCalledOnce();
+    expect(remint).not.toHaveBeenCalled();
     expect(requestReauth).not.toHaveBeenCalled();
   });
 
-  it('a re-mint timeout wrapped by @cloistr/auth is still not a reason to prompt', async () => {
+  it('timeout + key-locked, re-mint ALSO times out: rethrow, no prompt', async () => {
     const inner = fakeSigner({ signEvent: vi.fn(async () => { throw timeout(); }) });
-    const wrappedTimeout = signerError('CONNECT_FAILED', 'Request timed out after 30000ms (relays: wss://r)');
+    const remint = vi.fn(async () => { throw timeout(); });
     const requestReauth = vi.fn(async () => {});
-    const s = wrapSignerWithReauth(inner, {
-      probe: vi.fn(async () => 'healthy' as const),
-      remint: vi.fn(async () => { throw wrappedTimeout; }),
-      requestReauth,
-    });
+    const s = wrapSignerWithReauth(inner, { probe: vi.fn(async () => 'key-locked' as const), remint, requestReauth });
     await expect(s.signEvent(ev)).rejects.toThrow();
+    expect(remint).toHaveBeenCalledOnce();
     expect(requestReauth).not.toHaveBeenCalled();
   });
 
