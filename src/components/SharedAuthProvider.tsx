@@ -83,6 +83,24 @@ const SSO_SAFETY_CAP_MS = 30000;
  */
 export type RestoreOutcome = 'connected' | 'signer-unreachable' | 'logged-out';
 
+/**
+ * Should the provider show the "Signing you in securely" gate?
+ *
+ * The gate holds whenever a shared session exists, we are on a cloistr domain,
+ * and the signer restore has not reached a definitive outcome yet. It does NOT
+ * check isAuthenticated (the backend JWT or signer connection), because the
+ * backend token can be valid while the signer reconnect is still running, and
+ * dropping the gate in that state lets the app flash a login screen over a
+ * perfectly valid session. Exported and pure so the rule is pinned by test.
+ */
+export function shouldGateRestore(opts: {
+  restoreSettled: boolean;
+  hasSharedSession: boolean;
+  isCloistrDomain: boolean;
+}): boolean {
+  return !opts.restoreSettled && opts.hasSharedSession && opts.isCloistrDomain;
+}
+
 export function classifyRestoreOutcome(opts: {
   connected: boolean;
   hasSession: boolean;
@@ -145,6 +163,16 @@ interface SharedSessionContextValue {
    * completes, which reads as "no session persistence across pages".
    */
   isResolving: boolean;
+  /**
+   * True once the page-load signer restore has reached a definitive outcome:
+   * the signer connected, or the restore failed (unreachable, logged out,
+   * safety cap). False from mount until that point.
+   *
+   * Gate on this instead of combining isResolving/isConnecting/isConnected:
+   * those flags update in different React contexts and there is a render gap
+   * between them where the gate drops while the signer is still settling.
+   */
+  restoreSettled: boolean;
   /**
    * The session is VALID but the signer could not be reached, after bounded
    * retries. Apps MUST render the recovery screen for this, never a login
@@ -384,6 +412,7 @@ function SessionSyncInner({
 
   const [signerUnreachable, setSignerUnreachable] = useState(false);
   const [offerExtension, setOfferExtension] = useState(false);
+  const [restoreSettled, setRestoreSettled] = useState(false);
 
   const retrySignerConnect = useCallback(async (): Promise<boolean> => {
     setSignerUnreachable(false);
@@ -396,6 +425,13 @@ function SessionSyncInner({
       return false;
     }
   }, [connectWithRecovery]);
+
+  // restoreSettled: true once the signer is connected or the restore
+  // definitely failed. Covers the React render gap between isResolving
+  // clearing and authState.isConnected propagating.
+  useEffect(() => {
+    if (authState.isConnected) setRestoreSettled(true);
+  }, [authState.isConnected]);
 
   const attemptAutoConnect = useCallback(async () => {
     if (autoConnectAttempted.current || isAuthenticated || authState.isConnecting) {
@@ -460,6 +496,7 @@ function SessionSyncInner({
         // the app renders recovery, and do NOT report a failed auto-connect.
         if (classifyRestoreOutcome({ connected: false, hasSession: !!session }) === 'signer-unreachable') {
           setSignerUnreachable(true);
+          setRestoreSettled(true);
           return;
         }
       }
@@ -467,6 +504,7 @@ function SessionSyncInner({
       // 2. Legacy fallback: check if a shared session cookie exists. On non-cloistr
       // origins (dev/test) we can't drive the nostrconnect flow, so we report
       // not-connected and let the app show its login UI.
+      setRestoreSettled(true);
       onAutoConnectComplete?.(false, session?.pubkey);
     } finally {
       // Restore settled (success OR failure) — release the login gate.
@@ -479,6 +517,7 @@ function SessionSyncInner({
    */
   useEffect(() => {
     if (autoConnect === false) {
+      setRestoreSettled(true);
       setIsResolving(false);
       return;
     }
@@ -492,7 +531,7 @@ function SessionSyncInner({
     // — the intermittent false-logout seen on cross-subdomain app-switch. The
     // happy path never waits this long: attemptAutoConnect's finally releases
     // the gate the moment bootstrapKeys settles (success or failure).
-    const safety = setTimeout(() => setIsResolving(false), SSO_SAFETY_CAP_MS);
+    const safety = setTimeout(() => { setRestoreSettled(true); setIsResolving(false); }, SSO_SAFETY_CAP_MS);
     return () => {
       clearTimeout(timeout);
       clearTimeout(safety);
@@ -513,33 +552,24 @@ function SessionSyncInner({
     getSharedSession,
     isCloistrDomain: isCloistrDomain(),
     isResolving,
+    restoreSettled,
     signerUnreachable,
     retrySignerConnect,
     offerExtension,
     pin: pinValue,
   };
 
-  // Central login-race guard: while the silent SSO restore is still running on
-  // a cloistr.xyz origin (and we're not already authenticated), hold the app's
-  // first render so it can't redirect to /login before the session resolves.
-  // Bounded by the 3s safety cap above; a no-op off-cloistr or once resolved.
-  //
-  // ALSO covers the NIP-46 handshake that follows. isResolving clears when
-  // bootstrapKeys settles, but the signer round-trip then runs under
-  // isConnecting — and during that window an app seeing only `isConnected:false`
-  // renders its sign-in screen. For a user who already has a shared session and
-  // is just moving between apps, that reads as being logged out: reported as
-  // "I see a bunker URL modal, or nothing, between pages".
-  //
-  // Gated on hasSharedSession() so this only affects RETURNING users. A first
-  // login must NOT be covered — there the person is deliberately on the sign-in
-  // screen and LoginModal has its own inline connecting affordance (disabled
-  // buttons, "Connecting..."); replacing that with a full-screen spinner would
-  // hide the very controls they are interacting with.
-  const restoringSession = isResolving && !isAuthenticated && isCloistrDomain();
-  const reconnectingKnownSession =
-    !!authState.isConnecting && !isAuthenticated && hasSharedSession();
-  const gateRestore = restoringSession || reconnectingKnownSession;
+  // Central login-race guard: hold the app's first render while the signer
+  // restore has not settled. Does not check isAuthenticated (the JWT or the
+  // signer connection) because a returning user with a still-valid backend
+  // token must still wait for the signer to reconnect. Uses restoreSettled
+  // instead of isResolving/isConnecting, which update in different React
+  // contexts and have a render gap where the gate drops for one frame.
+  const gateRestore = shouldGateRestore({
+    restoreSettled,
+    hasSharedSession: hasSharedSession(),
+    isCloistrDomain: isCloistrDomain(),
+  });
 
   return (
     <SharedSessionContext.Provider value={sharedSessionValue}>

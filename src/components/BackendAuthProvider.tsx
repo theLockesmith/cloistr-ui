@@ -57,7 +57,7 @@ import {
 } from '../lib/session.js';
 import type { SharedSession } from '../lib/session.js';
 import { useKeySwitcherBootstrap } from '../lib/keySwitcher.js';
-import { SharedSessionContext } from './SharedAuthProvider.js';
+import { SharedSessionContext, shouldGateRestore } from './SharedAuthProvider.js';
 import { planPageLoadRestore } from './authRestorePolicy.js';
 import { AuthRestoreGate } from './AuthRestoreGate.js';
 
@@ -178,6 +178,7 @@ function BackendAuthInner({ children, config, resolveSignerRef }: InnerProviderP
   // "Your last sign-in here used an extension" — a hint for the login UI, not a
   // trigger. Restore never touches window.nostr; see authRestorePolicy.ts.
   const [offerExtension, setOfferExtension] = useState(false);
+  const [restoreSettled, setRestoreSettled] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -640,16 +641,18 @@ function BackendAuthInner({ children, config, resolveSignerRef }: InnerProviderP
       onCloistrDomain: isCloistrDomain(),
       nip07Available: false,
     }).attemptSignerSession) {
+      setRestoreSettled(true);
       setIsResolving(false);
       return;
     }
     bootstrapAttempted.current = true;
 
     bootstrapKeys().then((ok) => {
-      if (!ok) setIsResolving(false);
+      if (!ok) { setRestoreSettled(true); setIsResolving(false); }
       // If ok, the ssoSigner effect fires once the signer is registered and
       // releases isResolving after the backend exchange.
     }).catch(() => {
+      setRestoreSettled(true);
       setIsResolving(false);
     });
   }, [bootstrapKeys, setIsResolving]);
@@ -663,6 +666,7 @@ function BackendAuthInner({ children, config, resolveSignerRef }: InnerProviderP
         // Allow a retry on a later signer change (e.g. manual re-attempt).
         ssoBackendExchangeAttempted.current = false;
       }).finally(() => {
+        setRestoreSettled(true);
         setIsResolving(false);
       });
     }
@@ -692,6 +696,7 @@ function BackendAuthInner({ children, config, resolveSignerRef }: InnerProviderP
     getSharedSession: (): SharedSession | null => getSharedSession(),
     isCloistrDomain: isCloistrDomain(),
     isResolving,
+    restoreSettled,
     // This provider has no signer bootstrap of its own; it is never the source
     // of an unreachable-signer state.
     signerUnreachable: false,
@@ -750,7 +755,11 @@ function BackendAuthInner({ children, config, resolveSignerRef }: InnerProviderP
   // the on-load restore is genuinely in flight, only when logged out, and only
   // on a cloistr.xyz domain (elsewhere there is no shared session to restore, so
   // gating would just stall the app behind a spinner that can never resolve).
-  const gateRestore = isResolving && !isAuthenticated() && isCloistrDomain();
+  const gateRestore = shouldGateRestore({
+    restoreSettled,
+    hasSharedSession: hasSharedSession(),
+    isCloistrDomain: isCloistrDomain(),
+  });
 
   return (
     <SharedSessionContext.Provider value={sharedSessionValue}>
