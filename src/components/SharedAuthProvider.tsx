@@ -541,7 +541,7 @@ function SessionSyncInner({
     clearPin: pin.clearPin,
   }), [pin.pinnedPubkey, pin.setPinnedPubkey, pin.clearPin]);
 
-  const sharedSessionValue: SharedSessionContextValue = {
+  const sharedSessionValue: SharedSessionContextValue = useMemo(() => ({
     hasSharedSession: hasSharedSession(),
     getSharedSession,
     isCloistrDomain: isCloistrDomain(),
@@ -551,7 +551,7 @@ function SessionSyncInner({
     retrySignerConnect,
     offerExtension,
     pin: pinValue,
-  };
+  }), [isResolving, restoreSettled, signerUnreachable, retrySignerConnect, offerExtension, pinValue]);
 
   // Central login-race guard: hold the app's first render while the signer
   // restore has not settled. Does not check isAuthenticated (the JWT or the

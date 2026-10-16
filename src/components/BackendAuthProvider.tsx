@@ -722,7 +722,7 @@ function BackendAuthInner({ children, config, resolveSignerRef }: InnerProviderP
     retrySignerConnect: async () => false,
     offerExtension,
     pin: pinValue,
-  }), [isResolving, pinValue, offerExtension]);
+  }), [isResolving, restoreSettled, pinValue, offerExtension]);
 
   // ==========================================
   // Context Value
