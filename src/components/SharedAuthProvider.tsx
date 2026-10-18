@@ -435,7 +435,6 @@ function SessionSyncInner({
 
   const attemptAutoConnect = useCallback(async () => {
     if (autoConnectAttempted.current || isAuthenticated || authState.isConnecting) {
-      setRestoreSettled(true);
       setIsResolving(false);
       return;
     }

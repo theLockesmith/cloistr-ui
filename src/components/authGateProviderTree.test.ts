@@ -12,7 +12,7 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, vi } from 'vitest';
-import { createElement, useState, useEffect, act } from 'react';
+import { createElement, useState, useEffect, useRef, act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { shouldGateRestore } from './SharedAuthProvider.js';
 
@@ -270,5 +270,126 @@ describe('provider tree: safety cap isolation', () => {
 
     root.unmount();
     vi.useRealTimers();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Harness: early-return when isConnecting is already true at the 100ms tick
+// ---------------------------------------------------------------------------
+
+function IsConnectingEarlyReturnHarness({ isConnecting, isConnected, onRender }: {
+  isConnecting: boolean;
+  isConnected: boolean;
+  onRender: (gated: boolean) => void;
+}) {
+  const [restoreSettled, setRestoreSettled] = useState(false);
+  const autoConnectAttempted = useRef(false);
+
+  // isConnected watcher (mirrors SharedAuthProvider line 432-434)
+  useEffect(() => {
+    if (isConnected) setRestoreSettled(true);
+  }, [isConnected]);
+
+  // Mirrors attemptAutoConnect early-return (line 437-439).
+  // Fixed: no longer settles — lets isConnected watcher or cap settle.
+  useEffect(() => {
+    if (autoConnectAttempted.current || isConnecting) {
+      return;
+    }
+    autoConnectAttempted.current = true;
+  }, [isConnecting]);
+
+  // Safety cap (mount-only)
+  useEffect(() => {
+    const safety = setTimeout(() => setRestoreSettled(true), 30_000);
+    return () => clearTimeout(safety);
+  }, []);
+
+  const gated = shouldGateRestore({
+    restoreSettled,
+    hasSharedSession: true,
+    isCloistrDomain: true,
+  });
+
+  onRender(gated);
+  return createElement('div', null, gated ? 'gate' : 'app');
+}
+
+// ---------------------------------------------------------------------------
+
+describe('provider tree: early-return settle bug (card #180)', () => {
+  it('gate holds while signer is mid-connect — early return must NOT settle', () => {
+    // When isConnecting is true at the 100ms tick, attemptAutoConnect returns
+    // early. The gate must stay up until isConnected fires or the cap expires.
+    // BUG: current code calls setRestoreSettled(true) in the early return,
+    // which drops the gate and flashes the sign-in screen.
+    const renders: boolean[] = [];
+    const container = document.createElement('div');
+    const root = createRoot(container);
+
+    act(() => {
+      root.render(createElement(IsConnectingEarlyReturnHarness, {
+        isConnecting: true,
+        isConnected: false,
+        onRender: (g: boolean) => renders.push(g),
+      }));
+    });
+
+    // Gate MUST stay up — the signer connect hasn't finished
+    expect(renders[renders.length - 1]).toBe(true);
+
+    root.unmount();
+  });
+
+  it('gate drops when connect completes after early return', () => {
+    const renders: boolean[] = [];
+    const container = document.createElement('div');
+    const root = createRoot(container);
+
+    act(() => {
+      root.render(createElement(IsConnectingEarlyReturnHarness, {
+        isConnecting: true,
+        isConnected: false,
+        onRender: (g: boolean) => renders.push(g),
+      }));
+    });
+
+    // Connect completes: isConnecting -> false, isConnected -> true
+    act(() => {
+      root.render(createElement(IsConnectingEarlyReturnHarness, {
+        isConnecting: false,
+        isConnected: true,
+        onRender: (g: boolean) => renders.push(g),
+      }));
+    });
+
+    expect(renders[renders.length - 1]).toBe(false);
+    root.unmount();
+  });
+
+  it('isAuthenticated requires isConnected — not JWT-only (structural)', () => {
+    // Proves the reviewer's question: isAuthenticated in @cloistr/auth is
+    // authState.isConnected && !!signer, so it CANNOT be true without the
+    // signer connected. The isConnected watcher settles the gate; the early
+    // return's settle is redundant at best, harmful at worst.
+    const authSrc = require('node:fs').readFileSync(
+      require('node:path').join(process.cwd(), 'node_modules', '@cloistr', 'auth', 'dist', 'context.js'),
+      'utf8',
+    ) as string;
+    expect(authSrc).toMatch(/isAuthenticated:\s*authState\.isConnected\s*&&/);
+  });
+
+  it('early return does not settle restoreSettled (structural)', () => {
+    const src = require('node:fs').readFileSync(
+      require('node:path').join(process.cwd(), 'src', 'components', 'SharedAuthProvider.tsx'),
+      'utf8',
+    ) as string;
+    // The early-return block (autoConnectAttempted || isAuthenticated || isConnecting)
+    // must NOT contain setRestoreSettled(true).
+    const earlyReturn = src.match(
+      /if \(autoConnectAttempted\.current \|\| isAuthenticated \|\| authState\.isConnecting\)\s*\{([^}]+)\}/s,
+    );
+    expect(earlyReturn).toBeTruthy();
+    expect(earlyReturn![1]).not.toContain('setRestoreSettled(true)');
   });
 });
