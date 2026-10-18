@@ -250,6 +250,7 @@ function SessionSyncInner({
   const { isAuthenticated } = useAuthHelpers();
   const autoConnectAttempted = useRef(false);
   const prevConnectedRef = useRef(authState.isConnected);
+  const prevIsConnectingRef = useRef(authState.isConnecting);
 
   // Re-sign-in for a signer session that has really ended (see
   // lib/signerReauth.ts). Every caller waiting on it joins the same prompt.
@@ -432,6 +433,15 @@ function SessionSyncInner({
   useEffect(() => {
     if (authState.isConnected) setRestoreSettled(true);
   }, [authState.isConnected]);
+
+  useEffect(() => {
+    const wasConnecting = prevIsConnectingRef.current;
+    prevIsConnectingRef.current = authState.isConnecting;
+    if (wasConnecting && !authState.isConnecting && !authState.isConnected) {
+      if (hasSharedSession()) setSignerUnreachable(true);
+      setRestoreSettled(true);
+    }
+  }, [authState.isConnecting, authState.isConnected]);
 
   const attemptAutoConnect = useCallback(async () => {
     if (autoConnectAttempted.current || isAuthenticated || authState.isConnecting) {

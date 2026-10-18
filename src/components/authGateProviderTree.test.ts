@@ -317,6 +317,127 @@ function IsConnectingEarlyReturnHarness({ isConnecting, isConnected, onRender }:
 
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Harness: connect failure (isConnecting true→false without isConnected)
+// ---------------------------------------------------------------------------
+
+function ConnectFailureHarness({ isConnecting, isConnected, hasSession, onRender }: {
+  isConnecting: boolean;
+  isConnected: boolean;
+  hasSession: boolean;
+  onRender: (state: { gated: boolean; signerUnreachable: boolean }) => void;
+}) {
+  const [restoreSettled, setRestoreSettled] = useState(false);
+  const [signerUnreachable, setSignerUnreachable] = useState(false);
+  const prevIsConnectingRef = useRef(isConnecting);
+
+  // isConnected watcher (mirrors SharedAuthProvider line 432-434)
+  useEffect(() => {
+    if (isConnected) setRestoreSettled(true);
+  }, [isConnected]);
+
+  // Settle when a connect attempt finishes without success.
+  // FIX TARGET: this watcher is the fix for the 30s-hang-on-failure bug.
+  useEffect(() => {
+    const wasConnecting = prevIsConnectingRef.current;
+    prevIsConnectingRef.current = isConnecting;
+    if (wasConnecting && !isConnecting && !isConnected) {
+      if (hasSession) setSignerUnreachable(true);
+      setRestoreSettled(true);
+    }
+  }, [isConnecting, isConnected, hasSession]);
+
+  // Safety cap (mount-only)
+  useEffect(() => {
+    const safety = setTimeout(() => setRestoreSettled(true), 30_000);
+    return () => clearTimeout(safety);
+  }, []);
+
+  const gated = shouldGateRestore({
+    restoreSettled,
+    hasSharedSession: hasSession,
+    isCloistrDomain: true,
+  });
+
+  onRender({ gated, signerUnreachable });
+  return createElement('div', null, gated ? 'gate' : (signerUnreachable ? 'recovery' : 'app'));
+}
+
+// ---------------------------------------------------------------------------
+
+describe('provider tree: connect failure settle (card #180)', () => {
+  it('failed connect settles gate promptly and shows recovery, not sign-in', () => {
+    const renders: Array<{ gated: boolean; signerUnreachable: boolean }> = [];
+    const container = document.createElement('div');
+    const root = createRoot(container);
+
+    // Mount with connect in-flight, returning user (has session)
+    act(() => {
+      root.render(createElement(ConnectFailureHarness, {
+        isConnecting: true,
+        isConnected: false,
+        hasSession: true,
+        onRender: (s: { gated: boolean; signerUnreachable: boolean }) => renders.push(s),
+      }));
+    });
+    expect(renders[renders.length - 1].gated).toBe(true);
+
+    // Connect fails: isConnecting → false, isConnected stays false
+    act(() => {
+      root.render(createElement(ConnectFailureHarness, {
+        isConnecting: false,
+        isConnected: false,
+        hasSession: true,
+        onRender: (s: { gated: boolean; signerUnreachable: boolean }) => renders.push(s),
+      }));
+    });
+
+    // Gate drops promptly AND recovery screen shows (not sign-in)
+    expect(renders[renders.length - 1].gated).toBe(false);
+    expect(renders[renders.length - 1].signerUnreachable).toBe(true);
+    root.unmount();
+  });
+
+  it('failed connect without session settles gate without marking unreachable', () => {
+    const renders: Array<{ gated: boolean; signerUnreachable: boolean }> = [];
+    const container = document.createElement('div');
+    const root = createRoot(container);
+
+    act(() => {
+      root.render(createElement(ConnectFailureHarness, {
+        isConnecting: true,
+        isConnected: false,
+        hasSession: false,
+        onRender: (s: { gated: boolean; signerUnreachable: boolean }) => renders.push(s),
+      }));
+    });
+
+    act(() => {
+      root.render(createElement(ConnectFailureHarness, {
+        isConnecting: false,
+        isConnected: false,
+        hasSession: false,
+        onRender: (s: { gated: boolean; signerUnreachable: boolean }) => renders.push(s),
+      }));
+    });
+
+    // No session → no gate in the first place (shouldGateRestore returns false)
+    // but signerUnreachable should NOT be set
+    expect(renders[renders.length - 1].signerUnreachable).toBe(false);
+    root.unmount();
+  });
+
+  it('SharedAuthProvider has isConnecting→false settle watcher (structural)', () => {
+    const src = require('node:fs').readFileSync(
+      require('node:path').join(process.cwd(), 'src', 'components', 'SharedAuthProvider.tsx'),
+      'utf8',
+    ) as string;
+    // The watcher must detect isConnecting going false without isConnected
+    expect(src).toMatch(/prevIsConnectingRef/);
+    expect(src).toMatch(/wasConnecting && !authState\.isConnecting && !authState\.isConnected/);
+  });
+});
+
 describe('provider tree: early-return settle bug (card #180)', () => {
   it('gate holds while signer is mid-connect — early return must NOT settle', () => {
     // When isConnecting is true at the 100ms tick, attemptAutoConnect returns
