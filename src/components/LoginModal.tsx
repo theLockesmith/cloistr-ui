@@ -34,7 +34,7 @@ export interface LoginModalProps {
   onSession?: (data: SessionData) => void | Promise<void>;
 }
 
-type Screen = 'method' | 'bunker' | 'login' | 'signup' | 'pending' | 'consent' | 'lightning' | 'granted';
+type Screen = 'method' | 'bunker' | 'login' | 'signup' | 'pending' | 'consent' | 'lightning' | 'lightning-confirm' | 'granted';
 
 /**
  * Login modal with NIP-07, NIP-46, password login, Lightning login, and signup options.
@@ -155,6 +155,8 @@ export function LoginModal({ isOpen, onClose, signerUrl: signerUrlProp, mode = '
   const [lightningLnurl, setLightningLnurl] = useState<string | null>(null);
   const [lightningCopied, setLightningCopied] = useState(false);
   const lightningPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [lightningSessionId, setLightningSessionId] = useState<string | null>(null);
+  const [lightningConfirmUsername, setLightningConfirmUsername] = useState<string | null>(null);
 
   // Local error (form-level; distinct from authState.error which is auth-layer)
   const [localError, setLocalError] = useState<string | null>(null);
@@ -209,6 +211,8 @@ export function LoginModal({ isOpen, onClose, signerUrl: signerUrlProp, mode = '
     setConsentBusy(false);
     setLightningLnurl(null);
     setLightningCopied(false);
+    setLightningSessionId(null);
+    setLightningConfirmUsername(null);
   };
 
   // ── Auth handlers ─────────────────────────────────────────────────────────
@@ -410,6 +414,47 @@ export function LoginModal({ isOpen, onClose, signerUrl: signerUrlProp, mode = '
     }
   };
 
+  // Extracted so handleLightningConfirm can resume polling on 409.
+  const startLightningStatusPoll = (capturedSessionId: string) => {
+    stopLightningPoll();
+    const api = `${signerUrl}/api/v1`;
+    const interval = setInterval(() => {
+      void (async () => {
+        try {
+          const statusRes = await fetch(
+            `${api}/users/lightning/status?session_id=${encodeURIComponent(capturedSessionId)}`,
+            { credentials: 'include' },
+          );
+          if (!statusRes.ok) {
+            const b = await statusRes.json().catch(() => ({}));
+            const status = (b as { status?: string }).status;
+            stopLightningPoll();
+            setLocalError(status === 'expired' ? 'QR code expired — try again' : 'Lightning login failed');
+            return;
+          }
+          const body = (await statusRes.json()) as { success: boolean; status?: string; username?: string };
+          if (!body.success) {
+            if (body.status === 'confirm_account' && body.username) {
+              stopLightningPoll();
+              setLightningConfirmUsername(body.username);
+              setScreen('lightning-confirm');
+            }
+            return;
+          }
+          stopLightningPoll();
+          if (mode === 'session') {
+            onClose();
+            return;
+          }
+          await handleLoginWithCloistr();
+        } catch {
+          // transient network error — keep polling
+        }
+      })();
+    }, 2000);
+    lightningPollRef.current = interval;
+  };
+
   // Lightning (LNURL-auth) login.
   // 1. POST /users/lightning/challenge → get lnurl + session_id
   // 2. Show QR + link for wallet to scan/open
@@ -437,44 +482,55 @@ export function LoginModal({ isOpen, onClose, signerUrl: signerUrlProp, mode = '
 
       setLightningLnurl(lnurl);
       setLightningCopied(false);
+      setLightningSessionId(sessionId);
       setScreen('lightning');
 
-      // Start polling — captured sessionId is stable for this login attempt.
-      const capturedSessionId = sessionId;
-      const interval = setInterval(() => {
-        void (async () => {
-          try {
-            const statusRes = await fetch(
-              `${api}/users/lightning/status?session_id=${encodeURIComponent(capturedSessionId)}`,
-              { credentials: 'include' },
-            );
-            if (!statusRes.ok) {
-              // 400 = expired (or unknown error)
-              const b = await statusRes.json().catch(() => ({}));
-              const status = (b as { status?: string }).status;
-              stopLightningPoll();
-              setLocalError(status === 'expired' ? 'QR code expired — try again' : 'Lightning login failed');
-              return;
-            }
-            const body = (await statusRes.json()) as { success: boolean; status?: string; username?: string };
-            if (!body.success) return; // pending — keep polling
-
-            // success: cookie is set by the signer
-            stopLightningPoll();
-            if (mode === 'session') {
-              onClose();
-              return;
-            }
-            await handleLoginWithCloistr();
-          } catch {
-            // transient network error — keep polling
-          }
-        })();
-      }, 2000);
-
-      lightningPollRef.current = interval;
+      startLightningStatusPoll(sessionId);
     } catch (err) {
       setLocalError((err as Error).message);
+    }
+  };
+
+  // Lightning link-CSRF defence: the signer flags an unconfirmed wallet key
+  // so the victim can reject a bind to the attacker's account.
+  const handleLightningConfirm = async (confirm: boolean) => {
+    if (!lightningSessionId) return;
+    setLocalError(null);
+    try {
+      const api = `${signerUrl}/api/v1`;
+      const res = await fetch(`${api}/users/lightning/confirm`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: lightningSessionId, confirm }),
+      });
+      if (!res.ok) {
+        const b = (await res.json().catch(() => ({}))) as { status?: string; error?: string };
+        if (res.status === 409) {
+          setScreen('lightning');
+          startLightningStatusPoll(lightningSessionId);
+          return;
+        }
+        if (res.status === 400 && b.status === 'expired') {
+          setLocalError('Session expired — try again');
+          setScreen('method');
+          return;
+        }
+        throw new Error(b.error ?? 'Confirmation failed');
+      }
+      if (confirm) {
+        if (mode === 'session') {
+          onClose();
+          return;
+        }
+        await handleLoginWithCloistr();
+      } else {
+        setLocalError('That wallet key was removed from that account.');
+        setScreen('method');
+      }
+    } catch (err) {
+      setLocalError((err as Error).message);
+      setScreen('method');
     }
   };
 
@@ -740,6 +796,7 @@ export function LoginModal({ isOpen, onClose, signerUrl: signerUrlProp, mode = '
     pending: 'Connecting…',
     consent: 'Confirm Access',
     lightning: 'Sign in with Lightning',
+    'lightning-confirm': 'Confirm Account',
     granted: 'Signed in',
   };
 
@@ -1150,6 +1207,37 @@ export function LoginModal({ isOpen, onClose, signerUrl: signerUrlProp, mode = '
                   disabled={consentBusy}
                 >
                   {consentBusy ? 'Approving…' : 'Approve'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Lightning confirm: CSRF defence ─────────────────────────── */}
+          {screen === 'lightning-confirm' && lightningConfirmUsername && (
+            <div className="cloistr-lightning-confirm">
+              <p className="cloistr-login-help">
+                You are signing in as <strong>{lightningConfirmUsername}</strong>.
+                Is this your account?
+              </p>
+              <div className="cloistr-form-actions" style={{ marginTop: '12px' }}>
+                <button
+                  type="button"
+                  className="cloistr-btn cloistr-btn-primary"
+                  onClick={() => { void handleLightningConfirm(true); }}
+                >
+                  Yes
+                </button>
+                <button
+                  type="button"
+                  className="cloistr-btn cloistr-btn-secondary"
+                  onClick={() => { void handleLightningConfirm(false); }}
+                >
+                  No
+                </button>
+              </div>
+              <div className="cloistr-form-actions" style={{ marginTop: '4px' }}>
+                <button type="button" className="cloistr-btn cloistr-btn-secondary" onClick={goBack}>
+                  Cancel
                 </button>
               </div>
             </div>
