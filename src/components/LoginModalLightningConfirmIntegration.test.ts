@@ -115,14 +115,16 @@ describe('integration: Lightning confirm screen (real LoginModal)', () => {
    * 4. The poll interval fires → mock confirm_account
    * 5. The component transitions to lightning-confirm
    */
-  async function driveToConfirmScreen() {
+  async function driveToConfirmScreen(opts?: { username?: string; onClose?: ReturnType<typeof vi.fn> }) {
+    const username = opts?.username ?? 'alice';
+    const onClose = opts?.onClose ?? vi.fn();
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString();
       if (url.includes('/lightning/challenge')) {
         return mockResponse({ lnurl: 'lnurl-test', k1: 'k1-test', session_id: 'sess-123' });
       }
       if (url.includes('/lightning/status')) {
-        return mockResponse({ success: false, status: 'confirm_account', username: 'alice' });
+        return mockResponse({ success: false, status: 'confirm_account', username });
       }
       return mockResponse({}, 404);
     });
@@ -130,7 +132,7 @@ describe('integration: Lightning confirm screen (real LoginModal)', () => {
     await act(async () => {
       root.render(createElement(LoginModal, {
         isOpen: true,
-        onClose: vi.fn(),
+        onClose,
         signerUrl: 'https://signer.test',
       }));
     });
@@ -154,7 +156,7 @@ describe('integration: Lightning confirm screen (real LoginModal)', () => {
 
     const confirmText = container.querySelector('.cloistr-lightning-confirm');
     expect(confirmText).toBeTruthy();
-    expect(container.textContent).toContain('alice');
+    expect(container.textContent).toContain(username);
   }
 
   it('Yes button POSTs confirm:true and completes flow', async () => {
@@ -278,5 +280,176 @@ describe('integration: Lightning confirm screen (real LoginModal)', () => {
     // WITHOUT the in-flight guard (pre-fix): postCount === 2
     // WITH the guard (current branch): postCount === 1
     expect(postCount).toBe(1);
+  });
+
+  it('attacker username renders as escaped text, not HTML', async () => {
+    const xss = '<img src=x onerror=alert(1)>';
+    await driveToConfirmScreen({ username: xss });
+
+    // The username must appear as visible text
+    expect(container.textContent).toContain(xss);
+
+    // But NOT as a parsed HTML element — no <img> tag should exist
+    expect(container.querySelector('img')).toBeNull();
+
+    // Verify it's inside a <strong> element (React's text interpolation escapes)
+    const strong = container.querySelector('.cloistr-lightning-confirm strong');
+    expect(strong).toBeTruthy();
+    expect(strong!.textContent).toBe(xss);
+  });
+
+  it('No button does not trigger any sign-in call', async () => {
+    const onClose = vi.fn();
+    await driveToConfirmScreen({ onClose });
+
+    const postBodies: any[] = [];
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.includes('/lightning/confirm')) {
+        postBodies.push(JSON.parse(init?.body as string));
+        return mockResponse({ success: true });
+      }
+      if (url.includes('/nostrconnect')) {
+        throw new Error('Should NOT call nostrconnect after No');
+      }
+      return mockResponse({}, 404);
+    });
+
+    const noBtn = Array.from(container.querySelectorAll('button')).find(
+      (b) => b.textContent === 'No',
+    ) as HTMLButtonElement;
+    await act(async () => { noBtn.click(); });
+    await act(async () => { await Promise.resolve(); });
+
+    // Only the confirm POST was made, with confirm: false
+    expect(postBodies).toEqual([{ session_id: 'sess-123', confirm: false }]);
+    // onClose was NOT called — the user sees the "removed" message, not a silent close
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('failed POST (network error) re-enables buttons for retry', async () => {
+    await driveToConfirmScreen();
+
+    let postCount = 0;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.includes('/lightning/confirm')) {
+        postCount++;
+        if (postCount === 1) throw new Error('Network error');
+        return mockResponse({ success: true });
+      }
+      return mockResponse({}, 404);
+    });
+
+    const yesBtn = Array.from(container.querySelectorAll('button')).find(
+      (b) => b.textContent === 'Yes',
+    ) as HTMLButtonElement;
+
+    // First click — network error
+    await act(async () => { yesBtn.click(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(postCount).toBe(1);
+
+    // Error sends to method screen. Re-drive to confirm for retry.
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.includes('/lightning/challenge')) {
+        return mockResponse({ lnurl: 'lnurl-test', k1: 'k1-test', session_id: 'sess-456' });
+      }
+      if (url.includes('/lightning/status')) {
+        return mockResponse({ success: false, status: 'confirm_account', username: 'alice' });
+      }
+      if (url.includes('/lightning/confirm')) {
+        postCount++;
+        return mockResponse({ success: true });
+      }
+      return mockResponse({}, 404);
+    });
+
+    const toggleBtn = container.querySelector('.cloistr-login-more-toggle') as HTMLButtonElement;
+    if (toggleBtn) await act(async () => { toggleBtn.click(); });
+    const btns = container.querySelectorAll('.cloistr-login-options-advanced .cloistr-btn');
+    let lightningBtn: HTMLButtonElement | null = null;
+    btns.forEach((btn) => {
+      if (btn.textContent?.includes('Lightning')) lightningBtn = btn as HTMLButtonElement;
+    });
+    if (lightningBtn) {
+      await act(async () => { lightningBtn!.click(); });
+      await act(async () => { await Promise.resolve(); });
+      await act(async () => { vi.advanceTimersByTime(2100); });
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+      const retryYes = Array.from(container.querySelectorAll('button')).find(
+        (b) => b.textContent === 'Yes',
+      ) as HTMLButtonElement;
+      expect(retryYes).toBeTruthy();
+      expect(retryYes.disabled).toBe(false);
+      await act(async () => { retryYes.click(); });
+      await act(async () => { await Promise.resolve(); });
+      expect(postCount).toBe(2);
+    }
+  });
+
+  it('failed POST (500) re-enables buttons for retry', async () => {
+    await driveToConfirmScreen();
+
+    let postCount = 0;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.includes('/lightning/confirm')) {
+        postCount++;
+        if (postCount === 1) return mockResponse({ error: 'Internal server error' }, 500);
+        return mockResponse({ success: true });
+      }
+      return mockResponse({}, 404);
+    });
+
+    const yesBtn = Array.from(container.querySelectorAll('button')).find(
+      (b) => b.textContent === 'Yes',
+    ) as HTMLButtonElement;
+
+    // First click — 500 error
+    await act(async () => { yesBtn.click(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(postCount).toBe(1);
+
+    // 500 throws, sends back to method screen. Re-drive to confirm.
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.includes('/lightning/challenge')) {
+        return mockResponse({ lnurl: 'lnurl-test', k1: 'k1-test', session_id: 'sess-789' });
+      }
+      if (url.includes('/lightning/status')) {
+        return mockResponse({ success: false, status: 'confirm_account', username: 'alice' });
+      }
+      if (url.includes('/lightning/confirm')) {
+        postCount++;
+        return mockResponse({ success: true });
+      }
+      return mockResponse({}, 404);
+    });
+
+    const toggleBtn = container.querySelector('.cloistr-login-more-toggle') as HTMLButtonElement;
+    if (toggleBtn) await act(async () => { toggleBtn.click(); });
+    const btns = container.querySelectorAll('.cloistr-login-options-advanced .cloistr-btn');
+    let lightningBtn: HTMLButtonElement | null = null;
+    btns.forEach((btn) => {
+      if (btn.textContent?.includes('Lightning')) lightningBtn = btn as HTMLButtonElement;
+    });
+    if (lightningBtn) {
+      await act(async () => { lightningBtn!.click(); });
+      await act(async () => { await Promise.resolve(); });
+      await act(async () => { vi.advanceTimersByTime(2100); });
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+      const retryYes = Array.from(container.querySelectorAll('button')).find(
+        (b) => b.textContent === 'Yes',
+      ) as HTMLButtonElement;
+      expect(retryYes).toBeTruthy();
+      expect(retryYes.disabled).toBe(false);
+      await act(async () => { retryYes.click(); });
+      await act(async () => { await Promise.resolve(); });
+      expect(postCount).toBe(2);
+    }
   });
 });
