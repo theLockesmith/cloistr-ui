@@ -356,12 +356,15 @@ export function useKeySwitcherBootstrap(
     }
     // 401/403: signer is reachable but the user is not authenticated.
     if (keysRes.status === 401 || keysRes.status === 403) return false;
-    if (keysRes.ok) {
-      const keysBody = (await keysRes.json()) as unknown;
-      signerKeys = Array.isArray(keysBody)
-        ? (keysBody as SignerKey[])
-        : (((keysBody as { keys?: SignerKey[] }).keys) ?? []);
+    if (!keysRes.ok) {
+      const e = new Error(`CONNECTION_FAILED: signer returned ${keysRes.status}`);
+      (e as any).code = 'CONNECTION_FAILED';
+      throw e;
     }
+    const keysBody = (await keysRes.json()) as unknown;
+    signerKeys = Array.isArray(keysBody)
+      ? (keysBody as SignerKey[])
+      : (((keysBody as { keys?: SignerKey[] }).keys) ?? []);
 
     if (signerKeys.length === 0) return false;
 
