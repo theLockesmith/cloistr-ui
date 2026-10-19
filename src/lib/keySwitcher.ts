@@ -344,18 +344,23 @@ export function useKeySwitcherBootstrap(
     if (!isCloistrDomain()) return false;
 
     let signerKeys: SignerKey[] = [];
+    let keysRes: Response;
     try {
-      const keysRes = await fetch(`${signerUrl}/api/v1/keys`, {
+      keysRes = await fetch(`${signerUrl}/api/v1/keys`, {
         credentials: 'include',
       });
-      if (keysRes.ok) {
-        const keysBody = (await keysRes.json()) as unknown;
-        signerKeys = Array.isArray(keysBody)
-          ? (keysBody as SignerKey[])
-          : (((keysBody as { keys?: SignerKey[] }).keys) ?? []);
-      }
     } catch {
-      return false;
+      const e = new Error('CONNECTION_FAILED: signer unreachable');
+      (e as any).code = 'CONNECTION_FAILED';
+      throw e;
+    }
+    // 401/403: signer is reachable but the user is not authenticated.
+    if (keysRes.status === 401 || keysRes.status === 403) return false;
+    if (keysRes.ok) {
+      const keysBody = (await keysRes.json()) as unknown;
+      signerKeys = Array.isArray(keysBody)
+        ? (keysBody as SignerKey[])
+        : (((keysBody as { keys?: SignerKey[] }).keys) ?? []);
     }
 
     if (signerKeys.length === 0) return false;
@@ -390,11 +395,10 @@ export function useKeySwitcherBootstrap(
       registerKey(activeIdentity, signer, { activate: true });
       return true;
     } catch (err) {
-      // A locked key is not a connection failure: no retry of the same
-      // request can fix it, so carry it to the caller, which decides whether
-      // to ask the user to sign in again (SharedAuthProvider).
       if (isKeyLockedError(err)) throw err;
-      return false;
+      const e = new Error('CONNECTION_FAILED: mint signer failed');
+      (e as any).code = 'CONNECTION_FAILED';
+      throw e;
     }
   }, [signerUrl, setKeys, registerKey, mintSignerForKey]);
 

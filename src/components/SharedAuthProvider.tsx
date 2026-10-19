@@ -293,7 +293,7 @@ function SessionSyncInner({
     setIsResolving,
     pin,
     adoptSignerForReauth,
-  } = useKeySwitcherBootstrap(signerUrl, autoConnect !== false, { requestReauth });
+  } = useKeySwitcherBootstrap(signerUrl, autoConnect !== false && hasSharedSession(), { requestReauth });
 
   // Keep the ref up-to-date so AuthProvider always calls the current closure
   useEffect(() => {
@@ -388,11 +388,9 @@ function SessionSyncInner({
     // ~3 attempts inside the safety cap, so the user reaches a decision in a few
     // seconds instead of staring at a spinner for 30.
     return withSignerRetry(async () => {
-      const ok = await bootstrapKeys();
-      // bootstrapKeys resolves false rather than throwing; turn that into a
-      // throw so the retry policy can see it as a retryable failure.
-      if (!ok) throw new Error('CONNECTION_FAILED: signer bootstrap returned false');
-      return ok;
+      // bootstrapKeys returns false when the user is not authenticated (401)
+      // or has no keys. It throws for actual connection failures.
+      return await bootstrapKeys();
     }, { attempts: 3, baseDelayMs: 600, maxDelayMs: 2500 });
   }, [bootstrapKeys]);
 
