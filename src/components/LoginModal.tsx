@@ -157,6 +157,7 @@ export function LoginModal({ isOpen, onClose, signerUrl: signerUrlProp, mode = '
   const lightningPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [lightningSessionId, setLightningSessionId] = useState<string | null>(null);
   const [lightningConfirmUsername, setLightningConfirmUsername] = useState<string | null>(null);
+  const [lightningConfirmBusy, setLightningConfirmBusy] = useState(false);
 
   // Local error (form-level; distinct from authState.error which is auth-layer)
   const [localError, setLocalError] = useState<string | null>(null);
@@ -494,8 +495,9 @@ export function LoginModal({ isOpen, onClose, signerUrl: signerUrlProp, mode = '
   // Lightning link-CSRF defence: the signer flags an unconfirmed wallet key
   // so the victim can reject a bind to the attacker's account.
   const handleLightningConfirm = async (confirm: boolean) => {
-    if (!lightningSessionId) return;
+    if (!lightningSessionId || lightningConfirmBusy) return;
     setLocalError(null);
+    setLightningConfirmBusy(true);
     try {
       const api = `${signerUrl}/api/v1`;
       const res = await fetch(`${api}/users/lightning/confirm`, {
@@ -531,6 +533,8 @@ export function LoginModal({ isOpen, onClose, signerUrl: signerUrlProp, mode = '
     } catch (err) {
       setLocalError((err as Error).message);
       setScreen('method');
+    } finally {
+      setLightningConfirmBusy(false);
     }
   };
 
@@ -1224,6 +1228,7 @@ export function LoginModal({ isOpen, onClose, signerUrl: signerUrlProp, mode = '
                   type="button"
                   className="cloistr-btn cloistr-btn-primary"
                   onClick={() => { void handleLightningConfirm(true); }}
+                  disabled={lightningConfirmBusy}
                 >
                   Yes
                 </button>
@@ -1231,6 +1236,7 @@ export function LoginModal({ isOpen, onClose, signerUrl: signerUrlProp, mode = '
                   type="button"
                   className="cloistr-btn cloistr-btn-secondary"
                   onClick={() => { void handleLightningConfirm(false); }}
+                  disabled={lightningConfirmBusy}
                 >
                   No
                 </button>
