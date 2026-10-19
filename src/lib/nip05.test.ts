@@ -155,4 +155,37 @@ describe('resolveNip05 precedence', () => {
     await expect(resolveNip05(PUBKEY, undefined, SIGNER))
       .resolves.toBe('primary@signer.cloistr.xyz');
   });
+
+  it('uses the runtime baseDomain for identity lookups on staging', async () => {
+    (globalThis as any).window = {
+      location: { hostname: 'tasks.staging.cloistr.xyz', protocol: 'https:' },
+      document: { cookie: '' },
+      __CLOISTR_CONFIG__: { baseDomain: 'staging.cloistr.xyz' },
+    };
+
+    fetchMock.mockImplementation((url: string) => {
+      if (url.includes('/api/v1/users/me')) {
+        return json({ username: 'fraiyr', pubkey: PUBKEY });
+      }
+      if (url.startsWith('https://staging.cloistr.xyz/.well-known')) {
+        return json({ names: { fraiyr: PUBKEY } });
+      }
+      if (url.startsWith('https://cloistr.xyz/.well-known')) {
+        return json({ names: { fraiyr: PUBKEY } });
+      }
+      return json({ names: {} });
+    });
+
+    __clearNip05Cache();
+    const result = await resolveNip05(PUBKEY, 'primary', SIGNER);
+    expect(result).toBe('fraiyr@staging.cloistr.xyz');
+
+    const identityFetchUrls = fetchMock.mock.calls
+      .map((c: any) => c[0] as string)
+      .filter((u: string) => u.includes('.well-known/nostr.json'));
+    expect(identityFetchUrls.some((u: string) => u.startsWith('https://staging.cloistr.xyz/'))).toBe(true);
+    expect(identityFetchUrls.some((u: string) => u.startsWith('https://cloistr.xyz/'))).toBe(false);
+
+    delete (globalThis as any).window;
+  });
 });
