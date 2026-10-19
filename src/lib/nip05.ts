@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { getBaseDomain } from './runtimeConfig.js';
 
 /**
  * NIP-05 resolution for the shared header.
@@ -77,8 +78,11 @@ const inFlight = new Map<string, Promise<string | null>>();
  * useKeySwitcherBootstrap already makes, and the same cookie the menu's central
  * logout uses.
  */
-/** Where user identity addresses live. ServiceMenu already defaults the same way. */
-export const DEFAULT_IDENTITY_DOMAIN = 'cloistr.xyz';
+/** Where user identity addresses live — reads __CLOISTR_CONFIG__.baseDomain so
+ *  staging apps resolve against the staging NIP-05 endpoint, not prod. */
+export function getDefaultIdentityDomain(): string {
+  return getBaseDomain();
+}
 
 /**
  * signerUrl -> the signed-in user's { username, pubkey }, or null.
@@ -237,7 +241,7 @@ export async function resolveNip05(
   pubkey: string,
   name: string | undefined | null,
   signerUrl: string,
-  identityDomain: string = DEFAULT_IDENTITY_DOMAIN,
+  identityDomain: string = getDefaultIdentityDomain(),
 ): Promise<string | null> {
   if (cache.has(pubkey)) return cache.get(pubkey)!;
 
@@ -296,7 +300,7 @@ export function useNip05(
   pubkey: string | undefined | null,
   name: string | undefined | null,
   signerUrl: string,
-  identityDomain: string = DEFAULT_IDENTITY_DOMAIN,
+  identityDomain: string = getDefaultIdentityDomain(),
 ): string | null {
   const [address, setAddress] = useState<string | null>(() =>
     pubkey ? cache.get(pubkey) ?? null : null,

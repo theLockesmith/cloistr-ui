@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useNostrAuth } from '../auth/index.js';
 import { useSharedSessionMaybe } from './SharedAuthProvider.js';
 import { anchorBelow, type OverlayAnchor } from '../lib/overlayAnchor.js';
-import { useNip05, DEFAULT_IDENTITY_DOMAIN } from '../lib/nip05.js';
+import { useNip05, getDefaultIdentityDomain } from '../lib/nip05.js';
 import { getSignerUrl } from '../lib/runtimeConfig.js';
 
 // Lazy load SettingsModal for zero overhead until user clicks
@@ -68,7 +68,7 @@ export function UserMenu({
   method,
   onLogout,
   signerUrl: signerUrlProp,
-  identityDomain = DEFAULT_IDENTITY_DOMAIN,
+  identityDomain = getDefaultIdentityDomain(),
   nip05,
   onSignIn,
 }: UserMenuProps) {
