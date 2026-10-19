@@ -817,7 +817,8 @@
   border-color: var(--cloistr-text-dim);
 }
 
-.cloistr-apps-theme-btn--active {
+.cloistr-apps-theme-btn--active,
+.cloistr-apps-theme-btn--active:hover {
   background: var(--cloistr-bg-hover);
   border-color: var(--cloistr-primary-light);
   color: var(--cloistr-primary-light);
