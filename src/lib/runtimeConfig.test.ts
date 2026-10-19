@@ -7,6 +7,7 @@ import {
   getBaseDomain,
   getEnvironment,
   getServiceUrlOverrides,
+  getIdentityDomain,
 } from './runtimeConfig.js';
 
 function setWindowWith(hostname: string, config?: unknown): void {
@@ -147,5 +148,30 @@ describe('getServiceUrlOverrides', () => {
       services: { home: 'https://staging.cloistr.xyz' },
     });
     expect(getServiceUrlOverrides()).toEqual({ home: 'https://staging.cloistr.xyz' });
+  });
+});
+
+describe('getIdentityDomain', () => {
+  it('defaults to production', () => {
+    expect(getIdentityDomain()).toBe('cloistr.xyz');
+  });
+
+  it('reads identityDomain from runtime config', () => {
+    setWindowWith('mail.example.org', { identityDomain: 'id.example.org' });
+    expect(getIdentityDomain()).toBe('id.example.org');
+  });
+
+  it('prefers identityDomain over baseDomain', () => {
+    // A self-hosted deployment can serve apps on one domain and identities on
+    // another; the explicit key is the one that names the identity domain.
+    setWindowWith('mail.example.org', { identityDomain: 'id.example.org', baseDomain: 'example.org' });
+    expect(getIdentityDomain()).toBe('id.example.org');
+  });
+
+  it('falls back to the base domain (config, then staging hostname)', () => {
+    setWindowWith('mail.example.org', { baseDomain: 'example.org' });
+    expect(getIdentityDomain()).toBe('example.org');
+    setWindowWith('mail.staging.cloistr.xyz');
+    expect(getIdentityDomain()).toBe('staging.cloistr.xyz');
   });
 });

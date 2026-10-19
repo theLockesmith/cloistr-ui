@@ -130,6 +130,18 @@ describe('identity address precedence', () => {
     // rendered `primary@signer.cloistr.xyz` instead of `fraiyr@cloistr.xyz`.
     expect(src()).toMatch(/useNip05\(effectivePubkey, activeKeyName, signerUrl, identityDomain\)/);
   });
+
+  it('passes the identity domain to every account row, not just the active key', () => {
+    // AccountRow resolved each key with no domain, so it asked cloistr.xyz even
+    // when the menu itself had been given another domain.
+    expect(src()).toMatch(/useNip05\(identity\.pubkey, identity\.name, signerUrl, identityDomain\)/);
+    expect(src()).toMatch(/<AccountRow[\s\S]*?identityDomain=\{identityDomain\}/);
+  });
+
+  it('defaults the domain from runtime config, not the production constant', () => {
+    expect(src()).not.toMatch(/identityDomain = DEFAULT_IDENTITY_DOMAIN/);
+    expect(src()).toMatch(/identityDomainProp \|\| getIdentityDomain\(\)/);
+  });
 });
 
 describe('kind:0 nip05 outranks anything derived', () => {

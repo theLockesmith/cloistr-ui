@@ -3,8 +3,8 @@ import { createPortal } from 'react-dom';
 import { useNostrAuth } from '../auth/index.js';
 import { useSharedSessionMaybe } from './SharedAuthProvider.js';
 import { anchorBelow, type OverlayAnchor } from '../lib/overlayAnchor.js';
-import { useNip05, DEFAULT_IDENTITY_DOMAIN } from '../lib/nip05.js';
-import { getSignerUrl } from '../lib/runtimeConfig.js';
+import { useNip05 } from '../lib/nip05.js';
+import { getSignerUrl, getIdentityDomain } from '../lib/runtimeConfig.js';
 
 // Lazy load SettingsModal for zero overhead until user clicks
 const SettingsModal = lazy(() => import('./SettingsModal.js'));
@@ -26,7 +26,8 @@ export interface UserMenuProps {
   signerUrl?: string;
   /**
    * Domain that serves user identity addresses, i.e. the `cloistr.xyz` in
-   * `fraiyr@cloistr.xyz`. Self-hosted deployments override it.
+   * `fraiyr@cloistr.xyz`. Defaults to getIdentityDomain(): the runtime config's
+   * identityDomain, then the base domain, then cloistr.xyz.
    */
   identityDomain?: string;
   /**
@@ -68,11 +69,12 @@ export function UserMenu({
   method,
   onLogout,
   signerUrl: signerUrlProp,
-  identityDomain = DEFAULT_IDENTITY_DOMAIN,
+  identityDomain: identityDomainProp,
   nip05,
   onSignIn,
 }: UserMenuProps) {
   const signerUrl = signerUrlProp || getSignerUrl();
+  const identityDomain = identityDomainProp || getIdentityDomain();
   const { authState, disconnect, setActiveKey } = useNostrAuth();
   const sharedSession = useSharedSessionMaybe();
   const pin = sharedSession?.pin ?? null;
@@ -225,6 +227,7 @@ export function UserMenu({
                   isSwitching={authState.isSwitching}
                   pin={pin}
                   signerUrl={signerUrl}
+                  identityDomain={identityDomain}
                   onSwitch={handleSwitchKey}
                 />
               ))}
@@ -340,6 +343,7 @@ function AccountRow({
   isSwitching,
   pin,
   signerUrl,
+  identityDomain,
   onSwitch,
 }: {
   identity: { pubkey: string; name?: string };
@@ -348,9 +352,10 @@ function AccountRow({
   isSwitching: boolean;
   pin: { setPinnedPubkey: (pubkey: string) => void; clearPin: () => void } | null;
   signerUrl: string;
+  identityDomain: string;
   onSwitch: (pubkey: string) => void;
 }) {
-  const nip05 = useNip05(identity.pubkey, identity.name, signerUrl);
+  const nip05 = useNip05(identity.pubkey, identity.name, signerUrl, identityDomain);
 
   // Preference order: the verified NIP-05, then the signer's name for the key,
   // then hex. The NIP-05 outranks the bare name because it is the same name

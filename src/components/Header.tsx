@@ -51,6 +51,11 @@ export interface HeaderProps {
   /** Custom signer URL (defaults to the canonical Cloistr signer) */
   signerUrl?: string;
   /**
+   * Domain serving user identity addresses, forwarded to UserMenu. Defaults to
+   * the runtime config's identityDomain, then the base domain.
+   */
+  identityDomain?: string;
+  /**
    * @deprecated Passing children to Header fragments the shared nav. Use the
    * notification provider for bells and the ServiceMenu for theme controls.
    * This prop will be removed in the next major version.
@@ -77,6 +82,7 @@ export function Header({
   profileUrl,
   settingsUrl,
   signerUrl: signerUrlProp,
+  identityDomain,
   children,
   auth,
 }: HeaderProps) {
@@ -133,6 +139,7 @@ export function Header({
               nip05={auth?.nip05}
               onLogout={auth?.onLogout}
               signerUrl={signerUrl}
+              identityDomain={identityDomain}
               onSignIn={
                 externalAuth
                   ? auth?.onSignIn

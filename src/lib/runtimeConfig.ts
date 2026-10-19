@@ -13,6 +13,8 @@ interface CloistrRuntimeConfig {
   relayUrl?: string;
   signerUrl?: string;
   baseDomain?: string;
+  /** Domain serving user identity addresses (the cloistr.xyz in fraiyr@cloistr.xyz). */
+  identityDomain?: string;
   cookieDomain?: string;
   environment?: string;
   services?: Record<string, string>;
@@ -66,6 +68,20 @@ export function getBaseDomain(): string {
     }
   }
   return 'cloistr.xyz';
+}
+
+/**
+ * Domain whose /.well-known/nostr.json vouches for user identity addresses.
+ *
+ * Explicit `identityDomain` first, because a self-hosted deployment may serve
+ * apps and identities on different domains; then the base domain, which already
+ * maps a *.staging.cloistr.xyz host to staging.cloistr.xyz; then production.
+ * Without this every environment asked production cloistr.xyz.
+ */
+export function getIdentityDomain(): string {
+  const cfg = getRuntimeConfig();
+  if (typeof cfg.identityDomain === 'string' && cfg.identityDomain !== '') return cfg.identityDomain;
+  return getBaseDomain();
 }
 
 export function getEnvironment(): string {

@@ -33,3 +33,17 @@ describe('HeaderAuth passes nip05 through to UserMenu', () => {
     expect(s).not.toMatch(/nip05=["'][^"']+@[^"']+["']/);
   });
 });
+
+describe('Header forwards identityDomain to UserMenu', () => {
+  // Header had no identityDomain prop, so no app could point the user menu's
+  // NIP-05 lookup anywhere but production cloistr.xyz.
+  it('declares identityDomain on HeaderProps', () => {
+    const iface = /export interface HeaderProps\s*\{([\s\S]*?)\n\}/m.exec(src());
+    expect(iface, 'HeaderProps interface must exist').toBeTruthy();
+    expect(iface![1]).toMatch(/identityDomain\?:\s*string/);
+  });
+
+  it('passes it to UserMenu', () => {
+    expect(src()).toMatch(/<UserMenu[\s\S]*?identityDomain=\{identityDomain\}/);
+  });
+});

@@ -156,3 +156,62 @@ describe('resolveNip05 precedence', () => {
       .resolves.toBe('primary@signer.cloistr.xyz');
   });
 });
+
+describe('identity domain follows the deployment, not production', () => {
+  // Staging Mail called PROD https://cloistr.xyz/.well-known/nostr.json on every
+  // signed-in page: the Header had no way to take a domain, so UserMenu fell
+  // back to the 'cloistr.xyz' constant whatever environment it ran in.
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    __clearNip05Cache();
+    fetchMock = vi.fn((url: string) => {
+      if (url.includes('/api/v1/users/me')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ username: 'fraiyr', pubkey: PUBKEY }),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ names: { fraiyr: PUBKEY } }),
+      } as Response);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  const urls = () => fetchMock.mock.calls.map((c) => String(c[0]));
+  const hitsProdIdentity = () =>
+    urls().some((u) => u.startsWith('https://cloistr.xyz/'));
+
+  it('uses identityDomain from runtime config and never asks cloistr.xyz', async () => {
+    vi.stubGlobal('window', {
+      location: { hostname: 'mail.example.org' },
+      __CLOISTR_CONFIG__: { identityDomain: 'id.example.org' },
+    });
+    await expect(resolveNip05(PUBKEY, 'primary', SIGNER)).resolves.toBe('fraiyr@id.example.org');
+    expect(urls()).toContain('https://id.example.org/.well-known/nostr.json?name=fraiyr');
+    expect(hitsProdIdentity()).toBe(false);
+  });
+
+  it('falls back to the base domain on a staging host with no config key', async () => {
+    vi.stubGlobal('window', { location: { hostname: 'mail.staging.cloistr.xyz' } });
+    await expect(resolveNip05(PUBKEY, 'primary', SIGNER)).resolves.toBe('fraiyr@staging.cloistr.xyz');
+    expect(hitsProdIdentity()).toBe(false);
+  });
+
+  it('still defaults to cloistr.xyz in production with nothing configured', async () => {
+    vi.stubGlobal('window', { location: { hostname: 'mail.cloistr.xyz' } });
+    await expect(resolveNip05(PUBKEY, 'primary', SIGNER)).resolves.toBe('fraiyr@cloistr.xyz');
+  });
+
+  it('lets an explicit argument outrank runtime config', async () => {
+    vi.stubGlobal('window', {
+      location: { hostname: 'mail.example.org' },
+      __CLOISTR_CONFIG__: { identityDomain: 'id.example.org' },
+    });
+    await expect(resolveNip05(PUBKEY, 'primary', SIGNER, 'self.example'))
+      .resolves.toBe('fraiyr@self.example');
+  });
+});
