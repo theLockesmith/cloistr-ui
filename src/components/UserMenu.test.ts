@@ -140,7 +140,7 @@ describe('sign-out calls the per-session endpoint, not the account-wide one', ()
   it('UserMenu does NOT call the account-wide /api/v1/users/logout', () => {
     const s = src();
     const sessionEndpoint = '/api/v1/users/session/logout';
-    const stripped = s.replaceAll(sessionEndpoint, '');
+    const stripped = s.split(sessionEndpoint).join('');
     expect(
       stripped,
       'after removing the per-session path, the account-wide /api/v1/users/logout must not remain',
@@ -161,7 +161,7 @@ describe('sign-out calls the per-session endpoint, not the account-wide one', ()
       'utf8',
     );
     const sessionEndpoint = '/api/v1/users/session/logout';
-    const stripped = bap.replaceAll(sessionEndpoint, '');
+    const stripped = bap.split(sessionEndpoint).join('');
     expect(
       stripped,
       'after removing the per-session path, the account-wide /api/v1/users/logout must not remain',
