@@ -57,7 +57,7 @@
 
 .cloistr-btn-outline:hover:not(:disabled) {
   border-color: var(--cloistr-primary);
-  color: var(--cloistr-primary);
+  color: var(--cloistr-primary-text);
 }
 
 /* Icon-only button: square, no label, same tap-target minimum.
@@ -1759,7 +1759,7 @@
 .cloistr-appshell-menuitem-check {
   flex: 0 0 1em;
   text-align: center;
-  color: var(--cloistr-primary);
+  color: var(--cloistr-primary-text);
 }
 
 /* ── Context Menu ───────────────────────────────────────────────────────── */

@@ -18,6 +18,12 @@
      from this comment, because an earlier version of this note asserted ~9:1
      and was simply wrong. */
   --cloistr-primary-fg: #ffffff;
+  /* Text/icon colour when primary is the foreground on a page background.
+     In dark mode, #7c3aed on #0f0f0f is only 3.36:1 (fails AA). This
+     lighter variant reaches 4.74:1 on --cloistr-bg-elevated (#1a1a1a) and
+     5.22:1 on --cloistr-bg (#0f0f0f). Light-mode overrides below reset it
+     to --cloistr-primary, which already clears 5.70:1 on white. */
+  --cloistr-primary-text: #966bf5;
 
   /* Semantic colors */
   --cloistr-success: #10b981;
@@ -95,6 +101,7 @@
  */
 :root[data-theme="light"],
 :root.cloistr-light {
+  --cloistr-primary-text: #7c3aed;
   --cloistr-bg: #ffffff;
   --cloistr-bg-elevated: #f5f5f5;
   --cloistr-bg-hover: #e5e5e5;
@@ -109,6 +116,7 @@
 
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]):not([data-theme="light"]):not(.cloistr-light) {
+    --cloistr-primary-text: #7c3aed;
     --cloistr-bg: #ffffff;
     --cloistr-bg-elevated: #f5f5f5;
     --cloistr-bg-hover: #e5e5e5;

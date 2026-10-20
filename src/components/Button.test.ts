@@ -167,6 +167,58 @@ describe('--cloistr-primary-fg token', () => {
   });
 });
 
+// --- --cloistr-primary-text contrast ------------------------------------------
+
+describe('--cloistr-primary-text token', () => {
+  const hexOf = (name: string) => {
+    const m = VARS.match(new RegExp(`${name}:\\s*(#[0-9a-fA-F]{6})`));
+    if (!m) throw new Error(`token ${name} not found in variables.css`);
+    return m[1]!;
+  };
+
+  const luminance = (hex: string) => {
+    const channel = (v: number) => {
+      const s = v / 255;
+      return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+    };
+    return (
+      0.2126 * channel(parseInt(hex.slice(1, 3), 16)) +
+      0.7152 * channel(parseInt(hex.slice(3, 5), 16)) +
+      0.0722 * channel(parseInt(hex.slice(5, 7), 16))
+    );
+  };
+
+  const contrastRatio = (a: string, b: string) => {
+    const la = luminance(a), lb = luminance(b);
+    return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+  };
+
+  it('is defined in variables.css', () => {
+    expect(VARS).toContain('--cloistr-primary-text');
+  });
+
+  it('clears WCAG AA (4.5:1) against --cloistr-bg in dark mode', () => {
+    const ratio = contrastRatio(hexOf('--cloistr-primary-text'), hexOf('--cloistr-bg'));
+    expect(ratio).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('clears WCAG AA (4.5:1) against --cloistr-bg-elevated in dark mode', () => {
+    const ratio = contrastRatio(hexOf('--cloistr-primary-text'), hexOf('--cloistr-bg-elevated'));
+    expect(ratio).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('is overridden to --cloistr-primary in the light theme block', () => {
+    const lightBlock = VARS.slice(VARS.indexOf(':root[data-theme="light"]'));
+    expect(lightBlock).toContain('--cloistr-primary-text: #7c3aed');
+  });
+
+  it('light override clears AA against white and #f5f5f5', () => {
+    const primary = hexOf('--cloistr-primary');
+    expect(contrastRatio(primary, '#ffffff')).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(primary, '#f5f5f5')).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
 // --- 100dvh SWEEP ------------------------------------------------------------
 
 describe('100dvh sweep across the whole package', () => {
