@@ -132,6 +132,43 @@ describe('identity address precedence', () => {
   });
 });
 
+describe('sign-out calls the per-session endpoint, not the account-wide one', () => {
+  it('UserMenu calls /api/v1/users/session/logout', () => {
+    expect(src()).toContain('/api/v1/users/session/logout');
+  });
+
+  it('UserMenu does NOT call the account-wide /api/v1/users/logout', () => {
+    const s = src();
+    const sessionEndpoint = '/api/v1/users/session/logout';
+    const stripped = s.split(sessionEndpoint).join('');
+    expect(
+      stripped,
+      'after removing the per-session path, the account-wide /api/v1/users/logout must not remain',
+    ).not.toContain('/api/v1/users/logout');
+  });
+
+  it('BackendAuthProvider calls /api/v1/users/session/logout', () => {
+    const bap = readFileSync(
+      resolve(__dirname, './BackendAuthProvider.tsx'),
+      'utf8',
+    );
+    expect(bap).toContain('/api/v1/users/session/logout');
+  });
+
+  it('BackendAuthProvider does NOT call the account-wide /api/v1/users/logout', () => {
+    const bap = readFileSync(
+      resolve(__dirname, './BackendAuthProvider.tsx'),
+      'utf8',
+    );
+    const sessionEndpoint = '/api/v1/users/session/logout';
+    const stripped = bap.split(sessionEndpoint).join('');
+    expect(
+      stripped,
+      'after removing the per-session path, the account-wide /api/v1/users/logout must not remain',
+    ).not.toContain('/api/v1/users/logout');
+  });
+});
+
 describe('kind:0 nip05 outranks anything derived', () => {
   it('renders a caller-supplied nip05 above the derived address', () => {
     // kind:0 is canonical. @cloistr/ui cannot read it (no relay access, no

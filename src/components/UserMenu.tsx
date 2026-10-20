@@ -147,12 +147,12 @@ export function UserMenu({
   // the user is signed in.
   const activeNip05 = useNip05(effectivePubkey, activeKeyName, signerUrl, identityDomain);
 
-  // Central logout: best-effort call to the signer to revoke the shared session
-  // cookie, then fall through to the local disconnect/onLogout.
+  // Per-session sign-out: ends this browser's shared session at the signer,
+  // then falls through to the local disconnect/onLogout.
   const handleSignOut = async () => {
     setIsOpen(false);
     try {
-      await fetch(`${signerUrl}/api/v1/users/logout`, {
+      await fetch(`${signerUrl}/api/v1/users/session/logout`, {
         method: 'POST',
         credentials: 'include',
       });
