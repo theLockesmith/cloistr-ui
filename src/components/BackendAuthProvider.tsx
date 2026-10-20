@@ -461,10 +461,9 @@ function BackendAuthInner({ children, config, resolveSignerRef }: InnerProviderP
    * the shared cookie.
    *
    * The only thing that can revoke a token issued to a different origin is the
-   * server. The signer's POST /api/v1/users/logout is the central logout for
-   * the suite: it deletes every session, revokes Vault tokens, and revokes SSO
-   * app consents (unified-auth-design §5). It has always existed; nothing
-   * called it.
+   * server. The signer's POST /api/v1/users/session/logout ends this
+   * browser's shared session without revoking app consents or touching other
+   * devices. "Sign out everywhere" stays in the signer's Settings page.
    *
    * Fire-and-forget on purpose. The local sign-out happens IMMEDIATELY and
    * unconditionally — if the signer is unreachable, the user must still be able
@@ -481,7 +480,7 @@ function BackendAuthInner({ children, config, resolveSignerRef }: InnerProviderP
       const current = token ?? localStorage.getItem('access_token');
       if (current) headers.Authorization = `Bearer ${current}`;
 
-      void fetch(`${signerUrl}/api/v1/users/logout`, {
+      void fetch(`${signerUrl}/api/v1/users/session/logout`, {
         method: 'POST',
         credentials: 'include',
         headers,
