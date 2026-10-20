@@ -387,7 +387,7 @@
 }
 
 .cloistr-login-help a {
-  color: var(--cloistr-primary-light);
+  color: var(--cloistr-primary-text);
 }
 
 /* Bunker form */
