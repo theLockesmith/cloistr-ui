@@ -235,9 +235,9 @@ export function LoginModal({ isOpen, onClose, signerUrl: signerUrlProp, mode = '
 
   // "Login With Cloistr": SSO-aware nostrconnect flow.
   //
-  // 1. Probe for an active session via GET /api/v1/keys (credentials:'include').
-  //    - 200 → session exists, keyId obtained → proceed to auto-approval path.
-  //    - 401 or error → no session → fall back to manual URI-paste (unchanged UX).
+  // 1. Probe for an active session via GET /api/v1/session (always 200, never 401).
+  //    - {authenticated:true} → session exists → fetch keys for keyId.
+  //    - {authenticated:false} or error → no session → fall back to manual URI-paste.
   // 2. Auto-approval: generate nostrconnect URI, POST /api/v1/nostrconnect/session.
   //    - {success:true}          → silently signed in, onClose().
   //    - {consent_required:true} → show consent screen for first-time app approval.
@@ -257,25 +257,32 @@ export function LoginModal({ isOpen, onClose, signerUrl: signerUrlProp, mode = '
       return;
     }
 
-    // 1. Probe for active session cookie
+    // 1. Side-effect-free session probe (always 200, never logs a 401).
     let sessionKeyId: string | null = null;
     try {
-      const keysRes = await fetch(`${signerUrl}/api/v1/keys`, {
+      const probeRes = await fetch(`${signerUrl}/api/v1/session`, {
         credentials: 'include',
       });
-      if (keysRes.ok) {
-        const keysBody = (await keysRes.json()) as unknown;
-        const keys = Array.isArray(keysBody)
-          ? keysBody
-          : ((keysBody as { keys?: Array<{ id: string }> }).keys ?? []);
-        if (keys.length) {
-          // Prefer the key marked as primary; fall back to keys[0] only for
-          // legacy accounts that pre-date the is_primary field on the API.
-          const pk = (keys as Array<{ id: string; is_primary?: boolean }>).find(k => k.is_primary) ?? keys[0];
-          sessionKeyId = (pk as { id: string }).id;
+      if (probeRes.ok) {
+        const probe = (await probeRes.json()) as { authenticated?: boolean };
+        if (probe.authenticated) {
+          // Session confirmed — fetch keys only when authenticated so a
+          // signed-out page never triggers a console 401.
+          const keysRes = await fetch(`${signerUrl}/api/v1/keys`, {
+            credentials: 'include',
+          });
+          if (keysRes.ok) {
+            const keysBody = (await keysRes.json()) as unknown;
+            const keys = Array.isArray(keysBody)
+              ? keysBody
+              : ((keysBody as { keys?: Array<{ id: string }> }).keys ?? []);
+            if (keys.length) {
+              const pk = (keys as Array<{ id: string; is_primary?: boolean }>).find(k => k.is_primary) ?? keys[0];
+              sessionKeyId = (pk as { id: string }).id;
+            }
+          }
         }
       }
-      // 401 = no session → sessionKeyId remains null → fall back to manual
     } catch {
       // Network error → fall back to manual
     }
