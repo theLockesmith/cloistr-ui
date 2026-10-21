@@ -33,7 +33,7 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
-    "build": "npm run typecheck && tsc && cp -r src/styles dist/",
+    "build": "npm run typecheck && tsc && cp -r src/styles/ dist/styles/ && find dist/styles/ \\( -name '*.test.ts' -o -name '*.test.tsx' \\) -delete",
     "dev": "tsc --watch",
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run build",
