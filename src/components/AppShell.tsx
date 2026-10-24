@@ -109,6 +109,18 @@ interface AppShellContextValue {
   toggle: () => void;
   /** True when the control should exist at all at this viewport. */
   wanted: boolean;
+  /** What the toggle's aria-expanded reports: see toggleExpanded. */
+  expanded: boolean;
+}
+
+/**
+ * Whether the one nav toggle reads as expanded. It controls the drawer on
+ * mobile and the rail on desktop, so it reports only that viewport's state.
+ * Mixing them (`open || !collapsed`) said "expanded" on every phone whose app
+ * left the rail uncollapsed, i.e. every app not passing `collapsed`.
+ */
+export function toggleExpanded(opts: { isMobile: boolean; drawerOpen: boolean; railCollapsed: boolean }): boolean {
+  return opts.isMobile ? opts.drawerOpen : !opts.railCollapsed;
 }
 
 const AppShellContext = createContext<AppShellContextValue | null>(null);
@@ -134,9 +146,7 @@ export function AppShellToggle({ className }: { className?: string } = {}) {
 
   const button = (
     <div className={`cloistr-appshell-hamburger ${className ?? ''}`.trim()} data-testid="appshell-hamburger">
-      {/* expanded reflects whichever thing this viewport's toggle controls, so
-          aria-expanded is never a lie about the other one. */}
-      <SidebarToggle expanded={ctx.open || !ctx.collapsed} onClick={ctx.toggle} />
+      <SidebarToggle expanded={ctx.expanded} onClick={ctx.toggle} />
     </div>
   );
 
@@ -461,6 +471,7 @@ export function AppShell({
     collapsed: railCollapsed,
     toggle: () => (isMobile ? setDrawerOpen((v) => !v) : setRailCollapsed(!railCollapsed)),
     wanted: chrome.hamburger,
+    expanded: toggleExpanded({ isMobile, drawerOpen, railCollapsed }),
   };
 
   return (
