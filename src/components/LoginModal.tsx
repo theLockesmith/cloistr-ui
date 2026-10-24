@@ -422,7 +422,6 @@ export function LoginModal({ isOpen, onClose, signerUrl: signerUrlProp, mode = '
     }
   };
 
-  // Extracted so handleLightningConfirm can resume polling on 409.
   const startLightningStatusPoll = (capturedSessionId: string) => {
     stopLightningPoll();
     const api = `${signerUrl}/api/v1`;
@@ -515,9 +514,22 @@ export function LoginModal({ isOpen, onClose, signerUrl: signerUrlProp, mode = '
       });
       if (!res.ok) {
         const b = (await res.json().catch(() => ({}))) as { status?: string; error?: string };
+        // A failed confirm ends the flow; it never resumes the status poll.
+        // If the key was moved between the prompt and a No, the signer
+        // answered 409 not_required, and resuming the poll signed the user
+        // into that account (cloistr-audit on !75, note 20287).
         if (res.status === 409) {
-          setScreen('lightning');
-          startLightningStatusPoll(lightningSessionId);
+          setLocalError(
+            confirm
+              ? 'Sign-in could not be confirmed. Please try again.'
+              : 'That wallet key was removed from that account.',
+          );
+          setScreen('method');
+          return;
+        }
+        if (!confirm) {
+          setLocalError('Sign-in cancelled. The wallet could not be unlinked from that account; please try again later.');
+          setScreen('method');
           return;
         }
         if (res.status === 400 && b.status === 'expired') {
