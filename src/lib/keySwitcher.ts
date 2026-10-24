@@ -28,7 +28,7 @@ import { useNostrAuth, connectNip07, isNip07Supported } from '../auth/index.js';
 import type { KeyIdentity, SignerInterface } from '../auth/index.js';
 import { startNostrConnect } from '@cloistr/auth';
 import type { NostrConnectSession } from '@cloistr/auth';
-import { wrapSignerWithReauth, probeSignerApi, isKeyLockedError, cloistrKeyIdFor, KEY_LOCKED } from './signerReauth.js';
+import { wrapSignerWithReauth, probeSignerApi, fetchSignerKeysIfSignedIn, isKeyLockedError, cloistrKeyIdFor, KEY_LOCKED } from './signerReauth.js';
 import { unsealSession } from './staySignedIn.js';
 import {
   getActivePubkeyCookie,
@@ -343,28 +343,10 @@ export function useKeySwitcherBootstrap(
     // instead (see attemptAutoConnect / initAuth in those providers).
     if (!isCloistrDomain()) return false;
 
-    let signerKeys: SignerKey[] = [];
-    let keysRes: Response;
-    try {
-      keysRes = await fetch(`${signerUrl}/api/v1/keys`, {
-        credentials: 'include',
-      });
-    } catch {
-      const e = new Error('CONNECTION_FAILED: signer unreachable');
-      (e as any).code = 'CONNECTION_FAILED';
-      throw e;
-    }
-    // 401/403: signer is reachable but the user is not authenticated.
-    if (keysRes.status === 401 || keysRes.status === 403) return false;
-    if (!keysRes.ok) {
-      const e = new Error(`CONNECTION_FAILED: signer returned ${keysRes.status}`);
-      (e as any).code = 'CONNECTION_FAILED';
-      throw e;
-    }
-    const keysBody = (await keysRes.json()) as unknown;
-    signerKeys = Array.isArray(keysBody)
-      ? (keysBody as SignerKey[])
-      : (((keysBody as { keys?: SignerKey[] }).keys) ?? []);
+    // Session first: a signed-out page must never request /api/v1/keys (401).
+    const listed = await fetchSignerKeysIfSignedIn(signerUrl);
+    if (listed === null) return false;
+    const signerKeys = listed as SignerKey[];
 
     if (signerKeys.length === 0) return false;
 
