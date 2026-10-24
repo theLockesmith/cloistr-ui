@@ -23,10 +23,13 @@
  *     out, that's not a need to reenter credentials."
  *   - a refusal (CANCELLED, REMOTE_ERROR, ...) is never retried.
  *
- * Health is read from GET /api/v1/keys, not /health: /health sends no CORS
+ * Health is read from GET /api/v1/session, not /health: /health sends no CORS
  * headers, so a browser on an app origin cannot read it and would report a
- * healthy signer as down. The keys API is CORS-enabled, is already called by
- * every app, and its 401 also tells us when the session itself has ended.
+ * healthy signer as down. The session API is CORS-enabled, always answers 200,
+ * and says whether this browser's session is alive. GET /api/v1/keys answers a
+ * signed-out browser with a 401, which every signed-out page logged as a
+ * console error (cloistr-pages, 2026-10-21), so it is only asked once the
+ * session probe says someone is signed in.
  */
 import type { SignerInterface } from '@cloistr/auth';
 
@@ -86,11 +89,72 @@ function isGrantGone(err: unknown): boolean {
   return err instanceof Error && GRANT_GONE_MESSAGE.test(err.message);
 }
 
+export type SignerSession = 'signed-in' | 'signed-out' | 'unknown' | 'unreachable';
+
+/**
+ * Ask the signer whether this browser is signed in, without a 401.
+ *
+ * 'unknown' means the signer answered but not with a usable session body (a
+ * signer older than the session API, say); callers fall back to the keys API.
+ */
+export async function probeSignerSession(
+  signerUrl: string,
+  fetchFn: FetchLike = (i, init) => fetch(i, init),
+): Promise<SignerSession> {
+  let res: Response;
+  try {
+    res = await fetchFn(`${signerUrl}/api/v1/session`, { credentials: 'include' });
+  } catch {
+    return 'unreachable';
+  }
+  if (res.status >= 500) return 'unreachable';
+  if (!res.ok) return 'unknown';
+  try {
+    const body = (await res.json()) as { authenticated?: unknown };
+    if (typeof body?.authenticated !== 'boolean') return 'unknown';
+    return body.authenticated ? 'signed-in' : 'signed-out';
+  } catch {
+    return 'unknown';
+  }
+}
+
+/**
+ * The signer's key list, or null when nobody is signed in. Probes the session
+ * first so a signed-out page never requests /api/v1/keys. Throws
+ * CONNECTION_FAILED when the signer cannot be reached.
+ */
+export async function fetchSignerKeysIfSignedIn(
+  signerUrl: string,
+  fetchFn: FetchLike = (i, init) => fetch(i, init),
+): Promise<unknown[] | null> {
+  const session = await probeSignerSession(signerUrl, fetchFn);
+  if (session === 'signed-out') return null;
+  const unreachable = (why: string) =>
+    Object.assign(new Error(`CONNECTION_FAILED: ${why}`), { code: 'CONNECTION_FAILED' });
+  if (session === 'unreachable') throw unreachable('signer unreachable');
+  let res: Response;
+  try {
+    res = await fetchFn(`${signerUrl}/api/v1/keys`, { credentials: 'include' });
+  } catch {
+    throw unreachable('signer unreachable');
+  }
+  // 401/403: reachable, but the session ended between the two calls.
+  if (res.status === 401 || res.status === 403) return null;
+  if (!res.ok) throw unreachable(`signer returned ${res.status}`);
+  const body = (await res.json()) as unknown;
+  return Array.isArray(body) ? body : ((body as { keys?: unknown[] }).keys ?? []);
+}
+
 /** Is the signer API up, and is this browser's session still alive? */
 export async function probeSignerApi(
   signerUrl: string,
   fetchFn: FetchLike = (i, init) => fetch(i, init),
 ): Promise<SignerApiHealth> {
+  const session = await probeSignerSession(signerUrl, fetchFn);
+  if (session === 'signed-in') return 'healthy';
+  if (session === 'signed-out') return 'session-expired';
+  if (session === 'unreachable') return 'unreachable';
+  // A signer without the session API: read the keys API as before.
   try {
     const res = await fetchFn(`${signerUrl}/api/v1/keys`, { credentials: 'include' });
     if (res.ok) return 'healthy';
