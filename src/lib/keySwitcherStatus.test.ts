@@ -42,7 +42,9 @@ vi.mock('./session.js', () => ({
   setActivePubkeyCookie: vi.fn(),
 }));
 
-vi.mock('./signerReauth.js', () => ({
+vi.mock('./signerReauth.js', async (orig) => ({
+  // The real session-first key fetch: its classification is what's under test.
+  fetchSignerKeysIfSignedIn: (await orig<typeof import('./signerReauth.js')>()).fetchSignerKeysIfSignedIn,
   wrapSignerWithReauth: vi.fn(),
   probeSignerApi: vi.fn().mockResolvedValue(true),
   isKeyLockedError: () => false,
@@ -90,18 +92,33 @@ describe('bootstrapKeys response classification', () => {
     vi.unstubAllGlobals();
   });
 
+  // The session probe says someone is signed in, so the keys response is the
+  // one being classified.
+  const signedInThenKeys = (keys: () => Promise<unknown>) =>
+    fetchMock.mockImplementation((url: string) =>
+      url.endsWith('/api/v1/session')
+        ? Promise.resolve({ ok: true, status: 200, json: async () => ({ authenticated: true }) })
+        : keys());
+
+  it('signed out: returns false without ever requesting /api/v1/keys (0.50.6)', async () => {
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ authenticated: false }) });
+    await expect(capturedBootstrapKeys!()).resolves.toBe(false);
+    const urls = fetchMock.mock.calls.map((c) => c[0] as string);
+    expect(urls.some((u) => u.endsWith('/api/v1/keys'))).toBe(false);
+  });
+
   it('401 returns false (not authenticated)', async () => {
-    fetchMock.mockResolvedValueOnce({ ok: false, status: 401 });
+    signedInThenKeys(async () => ({ ok: false, status: 401 }));
     await expect(capturedBootstrapKeys!()).resolves.toBe(false);
   });
 
   it('403 returns false (not authenticated)', async () => {
-    fetchMock.mockResolvedValueOnce({ ok: false, status: 403 });
+    signedInThenKeys(async () => ({ ok: false, status: 403 }));
     await expect(capturedBootstrapKeys!()).resolves.toBe(false);
   });
 
   it('502 throws CONNECTION_FAILED (retryable server error)', async () => {
-    fetchMock.mockResolvedValueOnce({ ok: false, status: 502 });
+    signedInThenKeys(async () => ({ ok: false, status: 502 }));
     try {
       await capturedBootstrapKeys!();
       expect.fail('should have thrown');
@@ -112,7 +129,7 @@ describe('bootstrapKeys response classification', () => {
   });
 
   it('503 throws CONNECTION_FAILED (retryable server error)', async () => {
-    fetchMock.mockResolvedValueOnce({ ok: false, status: 503 });
+    signedInThenKeys(async () => ({ ok: false, status: 503 }));
     try {
       await capturedBootstrapKeys!();
       expect.fail('should have thrown');
@@ -123,7 +140,7 @@ describe('bootstrapKeys response classification', () => {
   });
 
   it('429 throws CONNECTION_FAILED (retryable server error)', async () => {
-    fetchMock.mockResolvedValueOnce({ ok: false, status: 429 });
+    signedInThenKeys(async () => ({ ok: false, status: 429 }));
     try {
       await capturedBootstrapKeys!();
       expect.fail('should have thrown');
@@ -134,7 +151,7 @@ describe('bootstrapKeys response classification', () => {
   });
 
   it('500 throws CONNECTION_FAILED (retryable server error)', async () => {
-    fetchMock.mockResolvedValueOnce({ ok: false, status: 500 });
+    signedInThenKeys(async () => ({ ok: false, status: 500 }));
     try {
       await capturedBootstrapKeys!();
       expect.fail('should have thrown');
@@ -145,7 +162,7 @@ describe('bootstrapKeys response classification', () => {
   });
 
   it('network error throws CONNECTION_FAILED', async () => {
-    fetchMock.mockRejectedValueOnce(new Error('network failed'));
+    signedInThenKeys(async () => { throw new Error('network failed'); });
     try {
       await capturedBootstrapKeys!();
       expect.fail('should have thrown');
