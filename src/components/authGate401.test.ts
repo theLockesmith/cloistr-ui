@@ -87,6 +87,7 @@ vi.mock('../lib/useRelayReconnect.js', () => ({
 
 vi.mock('./AuthRestoreGate.js', () => ({
   AuthRestoreGate: () => null,
+  AuthPendingView: () => null,
 }));
 
 vi.mock('./SignerReauthPrompt.js', () => ({
@@ -97,6 +98,8 @@ vi.mock('../lib/signerReauth.js', () => ({
   activeBunkerUrl: () => null,
   connectWithLockedKeyRecovery: vi.fn().mockResolvedValue(false),
   probeSignerApi: vi.fn().mockResolvedValue(true),
+  // Fresh browser: the signer answers that nobody is signed in.
+  probeSignerSession: vi.fn().mockResolvedValue('signed-out'),
   shouldAdoptForReauth: () => false,
 }));
 
@@ -141,7 +144,7 @@ describe('fresh browser 401: signed-out, not error screen', () => {
     vi.useRealTimers();
   });
 
-  it('isResolving starts false when there is no shared session', () => {
+  it('isResolving starts false when there is no shared session', async () => {
     const container = document.createElement('div');
     const root = createRoot(container);
 
@@ -155,7 +158,11 @@ describe('fresh browser 401: signed-out, not error screen', () => {
       );
     });
 
-    // The observer renders because the gate is NOT up (no shared session).
+    // With no shared cookie the provider first asks the signer whether this
+    // browser is signed in (authGateFirstVisit.test.ts). Let it answer.
+    await act(async () => { await Promise.resolve(); });
+
+    // The observer renders because the gate is NOT up (signer says signed out).
     expect(observedRenders.length).toBeGreaterThan(0);
 
     const last = observedRenders[observedRenders.length - 1];
