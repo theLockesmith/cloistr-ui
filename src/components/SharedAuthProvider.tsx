@@ -34,7 +34,9 @@ import {
 import { useKeySwitcherBootstrap } from '../lib/keySwitcher.js';
 import { planPageLoadRestore } from './authRestorePolicy.js';
 import { useRelayReconnect } from '../lib/useRelayReconnect.js';
-import { AuthRestoreGate } from './AuthRestoreGate.js';
+import { AuthPendingView, AuthRestoreGate } from './AuthRestoreGate.js';
+import { useSignerSessionHint } from '../lib/useSignerSessionHint.js';
+import type { SignerSessionHint } from '../lib/useSignerSessionHint.js';
 import { SignerReauthPrompt } from './SignerReauthPrompt.js';
 import { activeBunkerUrl, connectWithLockedKeyRecovery, probeSignerApi, shouldAdoptForReauth } from '../lib/signerReauth.js';
 import { unsealSession } from '../lib/staySignedIn.js';
@@ -99,6 +101,31 @@ export function shouldGateRestore(opts: {
   isCloistrDomain: boolean;
 }): boolean {
   return !opts.restoreSettled && opts.hasSharedSession && opts.isCloistrDomain;
+}
+
+/**
+ * What the provider renders on load: the app, the "signing you in" gate, or a
+ * neutral pending view.
+ *
+ * shouldGateRestore only sees the shared JS-readable cookies. With none, the
+ * signer may still hold a session (HttpOnly, so invisible to page code), and
+ * rendering the app would show the signed-out page until the restore lands.
+ * So on a cloistr domain with no shared cookie, hold a neutral view until the
+ * signer session hint answers: 'signed-in' raises the normal gate, anything
+ * else renders the app. The hint is capped at ~1s, so an anonymous visitor
+ * waits one fast request at most.
+ */
+export function decideRestoreView(opts: {
+  restoreSettled: boolean;
+  hasSharedSession: boolean;
+  isCloistrDomain: boolean;
+  signerHint: SignerSessionHint;
+}): 'children' | 'gate' | 'pending' {
+  if (shouldGateRestore(opts)) return 'gate';
+  if (opts.restoreSettled || !opts.isCloistrDomain) return 'children';
+  if (opts.signerHint === 'pending') return 'pending';
+  if (opts.signerHint === 'signed-in') return 'gate';
+  return 'children';
 }
 
 export function classifyRestoreOutcome(opts: {
@@ -412,6 +439,10 @@ function SessionSyncInner({
   const [signerUnreachable, setSignerUnreachable] = useState(false);
   const [offerExtension, setOfferExtension] = useState(false);
   const [restoreSettled, setRestoreSettled] = useState(false);
+  const signerHint = useSignerSessionHint(
+    signerUrl,
+    autoConnect !== false && isCloistrDomain() && !hasSharedSession(),
+  );
 
   const retrySignerConnect = useCallback(async (): Promise<boolean> => {
     setSignerUnreachable(false);
@@ -566,15 +597,18 @@ function SessionSyncInner({
   // token must still wait for the signer to reconnect. Uses restoreSettled
   // instead of isResolving/isConnecting, which update in different React
   // contexts and have a render gap where the gate drops for one frame.
-  const gateRestore = shouldGateRestore({
+  const restoreView = decideRestoreView({
     restoreSettled,
     hasSharedSession: hasSharedSession(),
     isCloistrDomain: isCloistrDomain(),
+    signerHint,
   });
 
   return (
     <SharedSessionContext.Provider value={sharedSessionValue}>
-      {gateRestore ? (
+      {restoreView === 'pending' ? (
+        <AuthPendingView />
+      ) : restoreView === 'gate' ? (
         // Shared "signing you in" view shown while the silent SSO restore runs
         // (bounded by the 3s cap). Gives every SharedAuthProvider app a single,
         // consistent login-in-progress affordance instead of a blank flash or a

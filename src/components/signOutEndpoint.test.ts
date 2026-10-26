@@ -68,6 +68,7 @@ vi.mock('./SharedAuthProvider.js', () => {
     useSharedSessionMaybe: () => null,
     SharedSessionContext: React.createContext(null),
     shouldGateRestore: () => false,
+    decideRestoreView: () => 'children',
   };
 });
 
@@ -123,6 +124,7 @@ vi.mock('./authRestorePolicy.js', () => ({
 
 vi.mock('./AuthRestoreGate.js', () => ({
   AuthRestoreGate: () => null,
+  AuthPendingView: () => null,
 }));
 
 // ── Imports (resolved against mocks) ───────────────────────────────────────

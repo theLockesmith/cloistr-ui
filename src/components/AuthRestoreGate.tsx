@@ -84,3 +84,19 @@ export function AuthRestoreGate({ error }: AuthRestoreGateProps) {
     </div>
   );
 }
+
+/**
+ * Neutral placeholder while the provider asks the signer whether this browser
+ * is signed in (see useSignerSessionHint). Deliberately blank: showing the
+ * "signing you in" copy to an anonymous visitor would be untrue, and showing
+ * the app would flash its signed-out page at a signed-in one. At most ~1s.
+ */
+export function AuthPendingView() {
+  return (
+    <div
+      aria-busy="true"
+      data-cloistr-auth-pending=""
+      style={{ minHeight: '100dvh', background: 'var(--cloistr-bg)' }}
+    />
+  );
+}

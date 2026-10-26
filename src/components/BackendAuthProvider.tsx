@@ -57,9 +57,10 @@ import {
 } from '../lib/session.js';
 import type { SharedSession } from '../lib/session.js';
 import { useKeySwitcherBootstrap } from '../lib/keySwitcher.js';
-import { SharedSessionContext, shouldGateRestore } from './SharedAuthProvider.js';
+import { SharedSessionContext, decideRestoreView } from './SharedAuthProvider.js';
+import { useSignerSessionHint } from '../lib/useSignerSessionHint.js';
 import { planPageLoadRestore } from './authRestorePolicy.js';
-import { AuthRestoreGate } from './AuthRestoreGate.js';
+import { AuthPendingView, AuthRestoreGate } from './AuthRestoreGate.js';
 
 // ============================================
 // Types
@@ -179,6 +180,10 @@ function BackendAuthInner({ children, config, resolveSignerRef }: InnerProviderP
   // trigger. Restore never touches window.nostr; see authRestorePolicy.ts.
   const [offerExtension, setOfferExtension] = useState(false);
   const [restoreSettled, setRestoreSettled] = useState(false);
+  const signerHint = useSignerSessionHint(
+    config.signerUrl,
+    isCloistrDomain() && !hasSharedSession(),
+  );
   const [authError, setAuthError] = useState<string | null>(null);
 
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -773,16 +778,23 @@ function BackendAuthInner({ children, config, resolveSignerRef }: InnerProviderP
   // the on-load restore is genuinely in flight, only when logged out, and only
   // on a cloistr.xyz domain (elsewhere there is no shared session to restore, so
   // gating would just stall the app behind a spinner that can never resolve).
-  const gateRestore = shouldGateRestore({
+  const restoreView = decideRestoreView({
     restoreSettled,
     hasSharedSession: hasSharedSession(),
     isCloistrDomain: isCloistrDomain(),
+    signerHint,
   });
 
   return (
     <SharedSessionContext.Provider value={sharedSessionValue}>
       <BackendAuthContext.Provider value={value}>
-        {gateRestore ? <AuthRestoreGate /> : children}
+        {restoreView === 'pending' ? (
+          <AuthPendingView />
+        ) : restoreView === 'gate' ? (
+          <AuthRestoreGate />
+        ) : (
+          children
+        )}
       </BackendAuthContext.Provider>
     </SharedSessionContext.Provider>
   );
