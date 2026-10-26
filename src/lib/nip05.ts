@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { getBaseDomain } from './runtimeConfig.js';
+import { fetchSignerKeysIfSignedIn } from './signerReauth.js';
 
 /**
  * NIP-05 resolution for the shared header.
@@ -130,14 +131,10 @@ function signerKeyNames(signerUrl: string): Promise<Map<string, string>> {
   const task = (async () => {
     const names = new Map<string, string>();
     try {
-      const res = await fetch(`${signerUrl.replace(/\/$/, '')}/api/v1/keys`, {
-        credentials: 'include',
-      });
-      if (!res.ok) return names;
-      const body = (await res.json()) as unknown;
-      const keys = (
-        Array.isArray(body) ? body : ((body as { keys?: unknown[] })?.keys ?? [])
-      ) as Array<{ id?: string; pubkey?: string; name?: string }>;
+      // Session first, so a signed-out page never requests /api/v1/keys (401).
+      const listed = await fetchSignerKeysIfSignedIn(signerUrl.replace(/\/$/, ''));
+      if (!listed) return names;
+      const keys = listed as Array<{ id?: string; pubkey?: string; name?: string }>;
       for (const k of keys) {
         const pk = k.pubkey ?? k.id;
         if (pk && k.name) names.set(pk.toLowerCase(), k.name);

@@ -56,7 +56,11 @@ describe('resolveNip05 precedence', () => {
     identityNames?: Record<string, string>;
     signerNames?: Record<string, string>;
     keys?: Array<{ pubkey: string; name: string }>;
+    session?: boolean;
   }) => (url: string) => {
+    if (url.includes('/api/v1/session') && opts.session !== undefined) {
+      return json({ authenticated: opts.session });
+    }
     if (url.includes('/api/v1/users/me')) {
       return opts.me ? json(opts.me) : Promise.resolve({ ok: false } as Response);
     }
@@ -154,6 +158,20 @@ describe('resolveNip05 precedence', () => {
     }));
     await expect(resolveNip05(PUBKEY, undefined, SIGNER))
       .resolves.toBe('primary@signer.cloistr.xyz');
+  });
+
+  it('a signed-out page never asks the signer for its key list (0.50.6)', async () => {
+    // /api/v1/keys answers a signed-out browser with a 401 console error.
+    fetchMock.mockImplementation(world({
+      me: null,
+      session: false,
+      keys: [{ pubkey: PUBKEY, name: 'primary' }],
+      signerNames: { primary: PUBKEY },
+    }));
+    await expect(resolveNip05(PUBKEY, undefined, SIGNER)).resolves.toBeNull();
+    const urls = fetchMock.mock.calls.map((c) => c[0] as string);
+    expect(urls.some((u) => u.includes('/api/v1/keys'))).toBe(false);
+    expect(urls.some((u) => u.includes('/api/v1/session'))).toBe(true);
   });
 
   it('uses the runtime baseDomain for identity lookups on staging', async () => {

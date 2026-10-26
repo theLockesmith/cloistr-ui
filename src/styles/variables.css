@@ -38,7 +38,7 @@
   --cloistr-border: #333333;
   --cloistr-text: #f5f5f5;
   --cloistr-text-muted: #a3a3a3;
-  --cloistr-text-dim: #737373;
+  --cloistr-text-dim: #848484;
 
   /* Typography */
   --cloistr-font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji';
@@ -108,7 +108,7 @@
   --cloistr-border: #d4d4d4;
   --cloistr-text: #171717;
   --cloistr-text-muted: #525252;
-  --cloistr-text-dim: #a3a3a3;
+  --cloistr-text-dim: #6f6f6f;
   --cloistr-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.1);
   --cloistr-shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
   --cloistr-shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
@@ -123,7 +123,7 @@
     --cloistr-border: #d4d4d4;
     --cloistr-text: #171717;
     --cloistr-text-muted: #525252;
-    --cloistr-text-dim: #a3a3a3;
+    --cloistr-text-dim: #6f6f6f;
     --cloistr-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.1);
     --cloistr-shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
     --cloistr-shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);

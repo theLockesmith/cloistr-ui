@@ -51,11 +51,11 @@ export function LoginPrompt({
       <div style={{ textAlign: 'center', maxWidth: '500px', padding: '2rem' }}>
         <h2 style={{ marginBottom: '0.5rem' }}>Welcome to {title}</h2>
         {subtitle && (
-          <p style={{ color: 'var(--text-secondary, #666)', marginBottom: '1rem' }}>
+          <p style={{ color: 'var(--cloistr-text-muted)', marginBottom: '1rem' }}>
             {subtitle}
           </p>
         )}
-        <p style={{ color: 'var(--text-secondary, #666)' }}>
+        <p style={{ color: 'var(--cloistr-text-muted)' }}>
           {callToAction}
         </p>
         {children}

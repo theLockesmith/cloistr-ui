@@ -59,8 +59,10 @@ export {
   decideAfterSignerFailure,
   wrapSignerWithReauth,
   connectWithLockedKeyRecovery,
+  probeSignerSession,
+  fetchSignerKeysIfSignedIn,
 } from './signerReauth.js';
-export type { SignerApiHealth, FailureDecision, ReauthDeps } from './signerReauth.js';
+export type { SignerApiHealth, SignerSession, FailureDecision, ReauthDeps } from './signerReauth.js';
 
 export { useRelayReconnect } from './useRelayReconnect.js';
 export type { RelayReconnectOptions } from './useRelayReconnect.js';

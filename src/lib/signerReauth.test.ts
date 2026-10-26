@@ -4,6 +4,8 @@ import {
   SIGNER_SESSION_ENDED,
   isKeyLockedError,
   probeSignerApi,
+  probeSignerSession,
+  fetchSignerKeysIfSignedIn,
   decideAfterSignerFailure,
   wrapSignerWithReauth,
   connectWithLockedKeyRecovery,
@@ -45,9 +47,8 @@ describe('isKeyLockedError', () => {
 });
 
 describe('probeSignerApi', () => {
-  // /health sends no CORS headers, so a browser on an app origin cannot read it
-  // and would report a healthy signer as down. /api/v1/keys is CORS-enabled and
-  // already called by every app, and it also says whether the session is alive.
+  // These cover a signer older than the session API (it 404s there), which is
+  // read through the keys API as before.
   it('2xx from the keys API is healthy', async () => {
     const f = vi.fn(async () => new Response('[]', { status: 200 }));
     expect(await probeSignerApi('https://s', f)).toBe('healthy');
@@ -60,6 +61,68 @@ describe('probeSignerApi', () => {
   it('5xx or a network error is unreachable', async () => {
     expect(await probeSignerApi('https://s', async () => new Response('', { status: 503 }))).toBe('unreachable');
     expect(await probeSignerApi('https://s', async () => { throw new TypeError('fetch failed'); })).toBe('unreachable');
+  });
+});
+
+/** A signer that routes by path; records every URL asked. */
+function signerAt(routes: Record<string, () => Response | Promise<Response>>) {
+  return vi.fn(async (url: string) => {
+    for (const [path, reply] of Object.entries(routes)) {
+      if (url.endsWith(path)) return reply();
+    }
+    return new Response('', { status: 404 });
+  });
+}
+const sessionSays = (authenticated: boolean) => () =>
+  new Response(JSON.stringify({ authenticated }), { status: 200 });
+const asked = (f: ReturnType<typeof vi.fn>) => f.mock.calls.map((c) => c[0] as string);
+
+describe('signed-out pages never request /api/v1/keys (0.50.6)', () => {
+  // GET /api/v1/keys answers a signed-out browser with a 401, which every
+  // signed-out page logged as a console error (cloistr-pages, 2026-10-21).
+  it('probeSignerSession reads the session API', async () => {
+    expect(await probeSignerSession('https://s', signerAt({ '/api/v1/session': sessionSays(true) }))).toBe('signed-in');
+    expect(await probeSignerSession('https://s', signerAt({ '/api/v1/session': sessionSays(false) }))).toBe('signed-out');
+    expect(await probeSignerSession('https://s', signerAt({}))).toBe('unknown');
+    expect(await probeSignerSession('https://s', signerAt({ '/api/v1/session': () => new Response('<html>', { status: 200 }) }))).toBe('unknown');
+    expect(await probeSignerSession('https://s', signerAt({ '/api/v1/session': () => new Response('', { status: 502 }) }))).toBe('unreachable');
+    expect(await probeSignerSession('https://s', async () => { throw new TypeError('fetch failed'); })).toBe('unreachable');
+  });
+
+  it('fetchSignerKeysIfSignedIn: signed out returns null and never asks for keys', async () => {
+    const f = signerAt({ '/api/v1/session': sessionSays(false), '/api/v1/keys': () => new Response('', { status: 401 }) });
+    expect(await fetchSignerKeysIfSignedIn('https://s', f)).toBeNull();
+    expect(asked(f)).toEqual(['https://s/api/v1/session']);
+  });
+
+  it('fetchSignerKeysIfSignedIn: signed in returns the keys, either body shape', async () => {
+    const bare = signerAt({ '/api/v1/session': sessionSays(true), '/api/v1/keys': () => new Response('[{"id":"a"}]') });
+    expect(await fetchSignerKeysIfSignedIn('https://s', bare)).toEqual([{ id: 'a' }]);
+    const wrapped = signerAt({ '/api/v1/session': sessionSays(true), '/api/v1/keys': () => new Response('{"keys":[{"id":"b"}]}') });
+    expect(await fetchSignerKeysIfSignedIn('https://s', wrapped)).toEqual([{ id: 'b' }]);
+  });
+
+  it('fetchSignerKeysIfSignedIn: an older signer without the session API falls back to keys', async () => {
+    const f = signerAt({ '/api/v1/keys': () => new Response('[]') });
+    expect(await fetchSignerKeysIfSignedIn('https://s', f)).toEqual([]);
+    const out = signerAt({ '/api/v1/keys': () => new Response('', { status: 401 }) });
+    expect(await fetchSignerKeysIfSignedIn('https://s', out)).toBeNull();
+  });
+
+  it('fetchSignerKeysIfSignedIn: an unreachable signer throws CONNECTION_FAILED', async () => {
+    const down = signerAt({ '/api/v1/session': () => new Response('', { status: 503 }) });
+    await expect(fetchSignerKeysIfSignedIn('https://s', down)).rejects.toMatchObject({ code: 'CONNECTION_FAILED' });
+    expect(asked(down)).toEqual(['https://s/api/v1/session']);
+    const keysErr = signerAt({ '/api/v1/session': sessionSays(true), '/api/v1/keys': () => new Response('', { status: 500 }) });
+    await expect(fetchSignerKeysIfSignedIn('https://s', keysErr)).rejects.toMatchObject({ code: 'CONNECTION_FAILED' });
+  });
+
+  it('probeSignerApi answers from the session API alone when it can', async () => {
+    const inF = signerAt({ '/api/v1/session': sessionSays(true) });
+    expect(await probeSignerApi('https://s', inF)).toBe('healthy');
+    const outF = signerAt({ '/api/v1/session': sessionSays(false) });
+    expect(await probeSignerApi('https://s', outF)).toBe('session-expired');
+    expect([...asked(inF), ...asked(outF)].some((u) => u.endsWith('/api/v1/keys'))).toBe(false);
   });
 });
 
