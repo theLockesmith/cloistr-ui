@@ -65,7 +65,7 @@ export { NotificationProvider, useNotifications } from './NotificationProvider.j
 export type { NotificationProviderProps, NotificationState } from './NotificationProvider.js';
 export { NotificationBell } from './NotificationBell.js';
 
-export { AppShell, AppShellToggle, appShellChrome, menuItemState, isSeparator, nextMenuIndex, useIsMobile, APPSHELL_BREAKPOINT } from './AppShell.js';
+export { AppShell, AppShellToggle, toggleExpanded, appShellChrome, menuItemState, isSeparator, nextMenuIndex, useIsMobile, APPSHELL_BREAKPOINT } from './AppShell.js';
 export type { AppShellProps, MenuSection, MenuItem, MenuEntry, MenuSeparator } from './AppShell.js';
 
 export { classifyRestoreOutcome, shouldGateRestore } from './SharedAuthProvider.js';
