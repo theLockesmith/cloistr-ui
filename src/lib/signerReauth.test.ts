@@ -581,3 +581,34 @@ describe('split mode: unseal comes FIRST (ruled 2026-10-12)', () => {
     expect(order).toEqual(['connect', 'unseal', 'connect']);
   });
 });
+
+describe('custom NIP-46 methods survive the wrapper (cloistr-space, Threads)', () => {
+  type WithRequest = SignerInterface & { sendRequest: (m: string, p: string[]) => Promise<string> };
+  const deps = () => ({
+    probe: vi.fn(async () => 'healthy' as const),
+    remint: vi.fn(async () => fakeSigner()),
+    requestReauth: vi.fn(async () => {}),
+  });
+
+  it('a wrapped NIP-46 signer still answers cloistr_ecdh_tag', async () => {
+    const sendRequest = vi.fn(async () => 'tag');
+    const s = wrapSignerWithReauth({ ...fakeSigner(), sendRequest } as WithRequest, deps()) as WithRequest;
+    expect(typeof s.sendRequest).toBe('function');
+    await expect(s.sendRequest('cloistr_ecdh_tag', ['pk'])).resolves.toBe('tag');
+    expect(sendRequest).toHaveBeenCalledWith('cloistr_ecdh_tag', ['pk']);
+  });
+
+  it('goes through recovery: a timeout re-mints and the request runs on the fresh session', async () => {
+    const fresh = { ...fakeSigner(), sendRequest: vi.fn(async () => 'fresh-tag') } as WithRequest;
+    const d = { ...deps(), remint: vi.fn(async () => fresh) };
+    const stale = { ...fakeSigner(), sendRequest: vi.fn(async () => { throw timeout(); }) } as WithRequest;
+    const s = wrapSignerWithReauth(stale, d) as WithRequest;
+    await expect(s.sendRequest('cloistr_ecdh_tag', ['pk'])).resolves.toBe('fresh-tag');
+    expect(d.remint).toHaveBeenCalledOnce();
+  });
+
+  it('is absent when the wrapped signer has none', () => {
+    const s = wrapSignerWithReauth(fakeSigner(), deps()) as Partial<WithRequest>;
+    expect(s.sendRequest).toBeUndefined();
+  });
+});

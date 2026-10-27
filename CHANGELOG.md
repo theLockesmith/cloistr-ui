@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.50.8
+
+- Fix: `wrapSignerWithReauth` now forwards `sendRequest` when the wrapped signer has one, through the same recovery path as every other call. It was dropped since 0.47.0, so custom NIP-46 methods (Space's `cloistr_ecdh_tag`, which finds thread key hand-offs) silently never ran and Threads showed "No threads yet" for every shared-sign-in user.
+
 ## 0.48.0
 
 - "Stay signed in" (needs cloistr-signer's stay-signed-in release; on a signer without it nothing changes). The sign-in form offers the durations the signer allows (this session only by default, 1 day, 30 days, until I sign out) and, where offered, "only this browser can keep me signed in" (split mode). After sign-in it says what was actually granted, including when that is shorter than asked.

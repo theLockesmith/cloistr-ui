@@ -378,6 +378,18 @@ export function wrapSignerWithReauth(initial: SignerInterface, deps: ReauthDeps)
   if (initial.nip44Decrypt) wrapped.nip44Decrypt = nip44('nip44Decrypt');
   if (initial.disconnect) wrapped.disconnect = () => inner.disconnect?.() ?? Promise.resolve();
   if (initial.getClientSecretKey) wrapped.getClientSecretKey = () => inner.getClientSecretKey?.() ?? '';
+  // Custom NIP-46 methods (cloistr_ecdh_tag, which Space uses to find thread
+  // key hand-offs) go through sendRequest. It is not on SignerInterface, so it
+  // was dropped here and Threads showed nothing (cloistr-space, 2026-10-27).
+  type WithRequest = { sendRequest?: (method: string, params: string[]) => Promise<string> };
+  if ((initial as WithRequest).sendRequest) {
+    (wrapped as WithRequest).sendRequest = (method, params) =>
+      call((s) => {
+        const fn = (s as WithRequest).sendRequest;
+        if (!fn) return Promise.reject(new Error('signer does not support sendRequest'));
+        return fn.call(s, method, params);
+      });
+  }
   return wrapped;
 }
 
