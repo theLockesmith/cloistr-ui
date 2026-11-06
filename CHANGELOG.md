@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.50.9
+
+- New text-safe status colours: `--cloistr-success-text`, `--cloistr-warning-text`, `--cloistr-error-text`, same shape as `--cloistr-primary-text`. Each reaches 4.5:1 (WCAG AA) on `--cloistr-bg` and `--cloistr-bg-elevated` in dark and both light theme blocks, pinned by a contrast test. The base status tokens stay as fills; as text they fail light-mode AA (`#10b981` on `#f5f5f5` is 2.33:1). Apps should switch status-coloured text to the `-text` tokens.
+
 ## 0.50.8
 
 - Fix: `wrapSignerWithReauth` now forwards `sendRequest` when the wrapped signer has one, through the same recovery path as every other call. It was dropped since 0.47.0, so custom NIP-46 methods (Space's `cloistr_ecdh_tag`, which finds thread key hand-offs) silently never ran and Threads showed "No threads yet" for every shared-sign-in user.
