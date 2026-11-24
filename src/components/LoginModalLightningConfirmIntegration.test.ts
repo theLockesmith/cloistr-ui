@@ -210,40 +210,87 @@ describe('integration: Lightning confirm screen (real LoginModal)', () => {
     expect(container.textContent).toContain('removed');
   });
 
-  it('409 resumes polling instead of restarting Lightning flow', async () => {
-    await driveToConfirmScreen();
-
-    let statusPollCount = 0;
+  /** After the confirm POST, count status polls and sign-in calls. */
+  function watchAfterConfirm(confirmReply: () => Promise<Response>) {
+    const seen = { statusPolls: 0, challenges: 0, signIns: 0 };
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString();
-      if (url.includes('/lightning/confirm')) {
-        return mockResponse({ status: 'conflict' }, 409);
-      }
+      if (url.includes('/lightning/confirm')) return confirmReply();
       if (url.includes('/lightning/status')) {
-        statusPollCount++;
-        return mockResponse({ success: false, status: 'pending' });
+        seen.statusPolls++;
+        // What the signer would answer once the attacker's key is unconfirmed.
+        return mockResponse({ success: true, username: 'attacker' });
       }
       if (url.includes('/lightning/challenge')) {
-        throw new Error('Should NOT restart challenge — 409 resumes polling');
+        seen.challenges++;
+        return mockResponse({ lnurl: 'x', k1: 'x', session_id: 'x' });
+      }
+      if (url.includes('/nostrconnect') || url.includes('/users/me') || url.includes('/keys')) {
+        seen.signIns++;
       }
       return mockResponse({}, 404);
     });
+    return seen;
+  }
 
-    const yesBtn = Array.from(container.querySelectorAll('button')).find(
-      (b) => b.textContent === 'Yes',
+  const clickButton = async (label: string) => {
+    const btn = Array.from(container.querySelectorAll('button')).find(
+      (b) => b.textContent === label,
     ) as HTMLButtonElement;
-    expect(yesBtn).toBeTruthy();
+    expect(btn).toBeTruthy();
+    await act(async () => { btn.click(); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  };
 
-    await act(async () => { yesBtn.click(); });
-    await act(async () => { await Promise.resolve(); });
+  // SECURITY (cloistr-audit, !75 note 20287): the attacker deletes the key
+  // between the prompt and the victim's No; /confirm answers 409 not_required,
+  // and resuming the poll signed the victim into the attacker's account.
+  for (const status of ['not_required', 'pending', 'conflict']) {
+    it(`No → 409 ${status} → no sign-in, no further polling`, async () => {
+      await driveToConfirmScreen({ username: 'attacker' });
+      const seen = watchAfterConfirm(async () => mockResponse({ status }, 409));
+      await clickButton('No');
+      await act(async () => { vi.advanceTimersByTime(10_000); });
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+      expect(seen.statusPolls).toBe(0);
+      expect(seen.challenges).toBe(0);
+      expect(seen.signIns).toBe(0);
+      expect(container.querySelector('.cloistr-lightning')).toBeNull();
+      expect(container.querySelector('.cloistr-lightning-confirm')).toBeNull();
+      expect(container.textContent).toContain('removed');
+    });
+  }
 
-    expect(container.querySelector('.cloistr-lightning')).toBeTruthy();
+  for (const code of [400, 500]) {
+    it(`No → ${code} → no sign-in, no further polling`, async () => {
+      await driveToConfirmScreen({ username: 'attacker' });
+      const seen = watchAfterConfirm(async () => mockResponse({ status: 'expired' }, code));
+      await clickButton('No');
+      await act(async () => { vi.advanceTimersByTime(10_000); });
+      await act(async () => { await Promise.resolve(); });
+      expect(seen.statusPolls).toBe(0);
+      expect(seen.signIns).toBe(0);
+      expect(container.querySelector('.cloistr-lightning-confirm')).toBeNull();
+      expect(container.textContent).toContain('Sign-in cancelled');
+    });
+  }
 
-    await act(async () => { vi.advanceTimersByTime(2100); });
-    await act(async () => { await Promise.resolve(); });
-
-    expect(statusPollCount).toBeGreaterThan(0);
-  });
+  // Any 409 ends the flow after Yes too: the confirm screen only appears once
+  // the wallet has signed, so there is nothing left to poll for.
+  for (const status of ['not_required', 'pending']) {
+    it(`Yes → 409 ${status} → flow ends, no further polling, no sign-in`, async () => {
+      await driveToConfirmScreen();
+      const seen = watchAfterConfirm(async () => mockResponse({ status }, 409));
+      await clickButton('Yes');
+      await act(async () => { vi.advanceTimersByTime(10_000); });
+      await act(async () => { await Promise.resolve(); });
+      expect(seen.statusPolls).toBe(0);
+      expect(seen.challenges).toBe(0);
+      expect(seen.signIns).toBe(0);
+      expect(container.querySelector('.cloistr-lightning')).toBeNull();
+      expect(container.textContent).toContain('could not be confirmed');
+    });
+  }
 
   it('double-click sends only one POST (in-flight guard)', async () => {
     await driveToConfirmScreen();
