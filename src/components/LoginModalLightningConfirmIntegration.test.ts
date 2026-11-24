@@ -292,6 +292,76 @@ describe('integration: Lightning confirm screen (real LoginModal)', () => {
     });
   }
 
+  // The signer's fail-closed refusal (cloistr-signer !254): the key behind this
+  // login is gone, or belongs to another account now. Each case gets its own
+  // message, none of which claims an unlink that failed or that we performed.
+  for (const [label, message] of [
+    ['Yes', 'Sign-in stopped. That wallet key is no longer linked to that account.'],
+    ['No', 'Sign-in cancelled. That wallet key is no longer linked to that account.'],
+  ]) {
+    it(`${label} → 400 unlinked → says the key is no longer linked, flow ends`, async () => {
+      await driveToConfirmScreen({ username: 'attacker' });
+      const seen = watchAfterConfirm(async () => mockResponse({ success: false, status: 'unlinked' }, 400));
+      await clickButton(label);
+      await act(async () => { vi.advanceTimersByTime(10_000); });
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+      expect(container.textContent).toContain(message);
+      expect(container.textContent).not.toContain('Confirmation failed');
+      expect(container.textContent).not.toContain('could not be unlinked');
+      expect(seen).toEqual({ statusPolls: 0, challenges: 0, signIns: 0 });
+      expect(container.querySelector('.cloistr-lightning-confirm')).toBeNull();
+    });
+  }
+
+  it('a 500 carrying status unlinked is not treated as the refusal', async () => {
+    await driveToConfirmScreen();
+    watchAfterConfirm(async () => mockResponse({ status: 'unlinked' }, 500));
+    await clickButton('No');
+    expect(container.textContent).toContain('could not be unlinked');
+    expect(container.textContent).not.toContain('no longer linked');
+  });
+
+  for (const [status, message] of [
+    ['unlinked', 'Sign-in stopped. That wallet key is no longer linked to the account it was signing in to.'],
+    ['expired', 'QR code expired — try again'],
+    ['other', 'Lightning login failed'],
+  ]) {
+    it(`status poll → 400 ${status} → its own message, polling stops`, async () => {
+      let polls = 0;
+      let signIns = 0;
+      fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+        const url = typeof input === 'string' ? input : input.toString();
+        if (url.includes('/lightning/challenge')) {
+          return mockResponse({ lnurl: 'lnurl-test', k1: 'k1-test', session_id: 'sess-123' });
+        }
+        if (url.includes('/lightning/status')) {
+          polls++;
+          return mockResponse({ success: false, status }, 400);
+        }
+        if (url.includes('/nostrconnect')) signIns++;
+        return mockResponse({}, 404);
+      });
+      await act(async () => {
+        root.render(createElement(LoginModal, { isOpen: true, onClose: vi.fn(), signerUrl: 'https://signer.test' }));
+      });
+      await act(async () => {
+        (container.querySelector('.cloistr-login-more-toggle') as HTMLButtonElement).click();
+      });
+      const lightning = Array.from(
+        container.querySelectorAll('.cloistr-login-options-advanced .cloistr-btn'),
+      ).find((b) => b.textContent?.includes('Lightning')) as HTMLButtonElement;
+      await act(async () => { lightning.click(); });
+      await act(async () => { await Promise.resolve(); });
+      await act(async () => { vi.advanceTimersByTime(2100); });
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+      expect(container.textContent).toContain(message);
+      await act(async () => { vi.advanceTimersByTime(10_000); });
+      await act(async () => { await Promise.resolve(); });
+      expect(polls).toBe(1);
+      expect(signIns).toBe(0);
+    });
+  }
+
   it('double-click sends only one POST (in-flight guard)', async () => {
     await driveToConfirmScreen();
 

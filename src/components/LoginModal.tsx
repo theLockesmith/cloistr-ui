@@ -436,7 +436,13 @@ export function LoginModal({ isOpen, onClose, signerUrl: signerUrlProp, mode = '
             const b = await statusRes.json().catch(() => ({}));
             const status = (b as { status?: string }).status;
             stopLightningPoll();
-            setLocalError(status === 'expired' ? 'QR code expired — try again' : 'Lightning login failed');
+            setLocalError(
+              status === 'expired'
+                ? 'QR code expired — try again'
+                : statusRes.status === 400 && status === 'unlinked'
+                  ? 'Sign-in stopped. That wallet key is no longer linked to the account it was signing in to.'
+                  : 'Lightning login failed',
+            );
             return;
           }
           const body = (await statusRes.json()) as { success: boolean; status?: string; username?: string };
@@ -523,6 +529,17 @@ export function LoginModal({ isOpen, onClose, signerUrl: signerUrlProp, mode = '
             confirm
               ? 'Sign-in could not be confirmed. Please try again.'
               : 'That wallet key was removed from that account.',
+          );
+          setScreen('method');
+          return;
+        }
+        // The signer refuses when the key is gone or now belongs to another
+        // account. "No longer linked" is true of both.
+        if (res.status === 400 && b.status === 'unlinked') {
+          setLocalError(
+            confirm
+              ? 'Sign-in stopped. That wallet key is no longer linked to that account.'
+              : 'Sign-in cancelled. That wallet key is no longer linked to that account.',
           );
           setScreen('method');
           return;
